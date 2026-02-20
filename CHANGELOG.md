@@ -1,5 +1,22 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.5.5] - 2026-02-20: **Monorepo + Firefox Fix**
+
+### 🏗️ Estructura
+- **Monorepo**: Reorganización completa del proyecto en `src/shared/`, `src/chrome/` y `src/firefox/`. Una única fuente de verdad para el código compartido.
+- **Build system**: Reemplazado el script `.ps1` por `build.bat` (doble clic, sin restricciones de ejecución). Genera `chrome/` y `firefox/` directamente en la raíz del proyecto.
+- **Cleanup**: Eliminados todos los archivos duplicados de la raíz (`manifest.json`, `background.js`, `content.js`, `overlay.css`, `popup.html`, `popup.js`, `icons/`, `libs/`, `manifest-firefox.json`, scripts legacy).
+
+### 🦊 Firefox
+- **Fix crítico**: `captureVisibleTab` ahora usa `windowId` explícito (Firefox rechaza `null`).
+- **Fix zoom**: `document.body.style.zoom` no es estándar en Firefox. Reemplazado por `transform: scale()` con detección automática de navegador.
+- **Fix CORS**: `validate_download` ahora maneja la ausencia de `content-length` (Firefox lo omite por CORS).
+
+### 📖 Documentación
+- **README**: Guía de instalación completa para Chrome y Firefox, troubleshooting, FAQ y structure para desarrolladores.
+
+---
+
 ## [2.4.3] - 2026-02-20: **Filename Fix & jsPDF Loader**
 - **UX Fix**: La descarga de PDF externo (vía "PDF Original") ahora guarda el archivo con el nombre real del documento en lugar del nombre genérico `Scribd_Document_Premium.pdf`. El nombre fluye desde el overlay → background → chrome.downloads.
 - **Loader Fix**: Corregida la detección de jsPDF en content scripts de Chrome MV3. El shim anterior intentaba simular CommonJS con `window.module`, lo cual era inefectivo. El nuevo enfoque deja que jsPDF use su rama global (`window.jspdf.jsPDF`) y simplifica `getJsPDF()` a las rutas reales.

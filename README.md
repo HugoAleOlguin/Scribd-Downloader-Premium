@@ -5,14 +5,14 @@
 **Descarga y respalda documentos de Scribd directamente desde tu navegador.**  
 Sin cuentas externas. Sin servidores de terceros. 100% local.
 
-[![Versión](https://img.shields.io/badge/versión-2.5.1-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
+[![Versión](https://img.shields.io/badge/versión-2.5.5-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
 [![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
 [![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
 [![Licencia](https://img.shields.io/badge/licencia-MIT-blue?style=flat-square)](LICENSE.md)
 
 <br/>
 
-[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.5.1-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
+[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.5.5-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
 
 </div>
 
