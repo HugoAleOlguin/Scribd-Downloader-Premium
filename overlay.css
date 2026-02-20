@@ -1,0 +1,248 @@
+/* overlay.css - v2.1.0 (Premium Rebrand) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+#sdl-overlay {
+    position: fixed !important;
+    bottom: 30px !important;
+    right: 30px !important;
+    z-index: 2147483647 !important;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.sdl-glass {
+    pointer-events: auto;
+    background: rgba(18, 18, 20, 0.95) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 32px 64px -12px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+    padding: 20px !important;
+    width: 340px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+    animation: sdl-entry 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes sdl-entry {
+    from {
+        transform: translateY(20px) scale(0.95);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+/* Header */
+.sdl-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding-bottom: 12px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.sdl-brand {
+    font-weight: 700 !important;
+    font-size: 15px !important;
+    color: #fff !important;
+    letter-spacing: -0.01em !important;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sdl-close {
+    background: transparent !important;
+    border: none !important;
+    color: rgba(255, 255, 255, 0.4) !important;
+    font-size: 20px !important;
+    padding: 4px !important;
+    cursor: pointer !important;
+    transition: color 0.2s !important;
+    line-height: 0 !important;
+}
+
+.sdl-close:hover {
+    color: #ff5252 !important;
+}
+
+/* Info Grid */
+.sdl-info-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    padding: 12px !important;
+    border-radius: 8px !important;
+}
+
+.sdl-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    font-size: 13px !important;
+}
+
+.sdl-label {
+    color: rgba(255, 255, 255, 0.5) !important;
+    font-weight: 500 !important;
+}
+
+.sdl-value {
+    color: #ececec !important;
+    font-weight: 600 !important;
+    font-variant-numeric: tabular-nums !important;
+}
+
+.sdl-truncate {
+    max-width: 180px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    text-align: right !important;
+}
+
+/* Progress */
+.sdl-progress-track {
+    background: rgba(255, 255, 255, 0.1) !important;
+    height: 4px !important;
+    border-radius: 2px !important;
+    width: 100% !important;
+    overflow: hidden !important;
+    margin-bottom: 8px;
+}
+
+#sdl-progress-fill {
+    background: #00e676 !important;
+    height: 100% !important;
+    width: 0%;
+    transition: width 0.3s ease !important;
+}
+
+/* Buttons Container */
+.sdl-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Button & Tooltip */
+.sdl-btn-container {
+    position: relative;
+    width: 100%;
+}
+
+.sdl-btn {
+    width: 100% !important;
+    border: none !important;
+    border-radius: 8px !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+    font-size: 13px !important;
+    padding: 14px 16px !important;
+    cursor: pointer !important;
+    transition: all 0.2s !important;
+    text-align: left !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Specific Buttons */
+.sdl-btn-primary {
+    background: #0091ea !important;
+    /* Standard Blue */
+    box-shadow: 0 4px 12px rgba(0, 145, 234, 0.2) !important;
+}
+
+.sdl-btn-primary:hover {
+    background: #00b0ff !important;
+    transform: translateY(-1px);
+}
+
+.sdl-btn-vector {
+    background: #4a148c !important;
+    /* Purple/Premium */
+    box-shadow: 0 4px 12px rgba(74, 20, 140, 0.3) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.sdl-btn-vector:hover {
+    background: #6a1b9a !important;
+    transform: translateY(-1px);
+}
+
+.sdl-btn-glow {
+    background: linear-gradient(135deg, #FF3CAC, #784BA0) !important;
+}
+
+/* Subtext in button */
+.sdl-btn span {
+    pointer-events: none;
+}
+
+.sdl-badge {
+    background: rgba(0, 0, 0, 0.2) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    font-size: 10px !important;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+/* Tooltip Logic */
+.sdl-tooltip {
+    visibility: hidden;
+    width: 280px;
+    background-color: rgba(0, 0, 0, 0.95);
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 8px 12px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    /* Position above button */
+    left: 50%;
+    margin-left: -140px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+
+.sdl-tooltip::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: rgba(0, 0, 0, 0.95) transparent transparent transparent;
+}
+
+.sdl-btn-container:hover .sdl-tooltip {
+    visibility: visible;
+    opacity: 1;
+}
+
+.sdl-divider {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.2);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
