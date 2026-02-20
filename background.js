@@ -61,8 +61,20 @@ const StateManager = {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "capture_tab") {
-        chrome.tabs.captureVisibleTab(null, { format: "png" }, (dataUrl) => {
-            sendResponse({ success: !chrome.runtime.lastError, image: dataUrl });
+        // Firefox requires explicit windowId — get it from the active tab query
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const windowId = tabs[0]?.windowId;
+            if (!windowId) {
+                sendResponse({ success: false, error: 'No active window found' });
+                return;
+            }
+            chrome.tabs.captureVisibleTab(windowId, { format: "png" }, (dataUrl) => {
+                if (chrome.runtime.lastError) {
+                    sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                } else {
+                    sendResponse({ success: true, image: dataUrl });
+                }
+            });
         });
         return true;
     }
@@ -76,20 +88,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             .then(response => {
                 const type = response.headers.get('content-type');
                 const length = response.headers.get('content-length');
-                const size = length ? parseInt(length) : 0;
-                const isValidType = type && (type.includes('pdf') || type.includes('octet') || type.includes('force-download'));
-                const isValidSize = size > 2048;
+                const size = length ? parseInt(length) : null;
 
-                if (response.ok && isValidSize) {
-                    // Sanitizar el nombre recibido para evitar caracteres inválidos en rutas de archivo
+                // Firefox may omit content-length due to CORS — if so, trust content-type alone
+                const isValidType = type && (type.includes('pdf') || type.includes('octet') || type.includes('force-download'));
+                const isValidSize = size === null ? true : size > 2048; // If no size header, skip size check
+
+                if (response.ok && (isValidType || size === null)) {
                     const rawName = request.docName || 'Scribd_Document_Premium';
                     const safeFilename = rawName.replace(/[^a-z0-9\s\-_\u00C0-\u00FF]/gi, '').trim().replace(/\s+/g, '_') || 'Scribd_Document_Premium';
                     chrome.downloads.download({ url: request.url, filename: `${safeFilename}.pdf`, saveAs: true });
                     sendResponse({ valid: true });
                 } else {
-                    sendResponse({ valid: false, reason: "Invalid file size/type" });
+                    sendResponse({ valid: false, reason: `Invalid: type=${type}, size=${size}` });
                 }
-            }).catch(() => sendResponse({ valid: false, reason: "Network Error" }));
+            }).catch(err => sendResponse({ valid: false, reason: `Network Error: ${err.message}` }));
         return true;
     }
 

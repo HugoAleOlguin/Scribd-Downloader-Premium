@@ -127,15 +127,35 @@ async function executeHQScan() {
   if (AppState.isProcessing) return;
   AppState.isProcessing = true;
 
-  // Get translations for dynamic states
   // Robust Fallback for HQ Scan states
   const FallbackStates = { loading: "Cargando...", saving: "Guardando...", success: "Listo!", error: "Error: " };
   const I18nSafe = window.I18n || { es: { overlay: { states: FallbackStates } } };
   const T = (I18nSafe[AppState.language]?.overlay?.states) || I18nSafe.es?.overlay?.states || FallbackStates;
 
-  Interface.updateState('loading', T.loading);
+  // Utilidad de zoom cross-browser: Chrome soporta `zoom`, Firefox requiere `transform:scale`
+  const isFirefox = navigator.userAgent.includes('Firefox');
+  const applyZoom = (level) => {
+    if (isFirefox) {
+      // Firefox: usamos transform en el wrapper principal del documento
+      const scroller = document.querySelector('.document_scroller') || document.body;
+      scroller.style.transformOrigin = 'top left';
+      scroller.style.transform = `scale(${level})`;
+    } else {
+      document.body.style.zoom = level;
+    }
+  };
+  const resetZoom = () => {
+    if (isFirefox) {
+      const scroller = document.querySelector('.document_scroller') || document.body;
+      scroller.style.transform = '';
+      scroller.style.transformOrigin = '';
+    } else {
+      document.body.style.zoom = '';
+    }
+  };
 
-  const originalBodyStyle = { ...document.body.style };
+  Interface.updateState('loading', T.loading);
+  const originalOverflow = document.body.style.overflow;
 
   try {
     const pdf = PDFHandler.init();
@@ -153,7 +173,7 @@ async function executeHQScan() {
       const viewportH = window.innerHeight; const pageH = page.offsetHeight; const pageW = page.offsetWidth; const viewportW = window.innerWidth;
       let zoomH = viewportH / pageH; let zoomW = viewportW / pageW;
       let targetZoom = Math.min(zoomH, zoomW, 1) * 0.98;
-      document.body.style.zoom = targetZoom;
+      applyZoom(targetZoom);
       page.scrollIntoView({ behavior: 'instant', block: 'center' });
 
       await new Promise(r => setTimeout(r, 1200));
@@ -182,15 +202,15 @@ async function executeHQScan() {
     Interface.updateState('success', T.success);
 
     // Cleanup
-    document.body.style.zoom = originalBodyStyle.zoom || "";
-    document.body.style.overflow = originalBodyStyle.overflow || "";
+    resetZoom();
+    document.body.style.overflow = originalOverflow || '';
     document.getElementById('spd-clean-style')?.remove();
     setTimeout(() => { AppState.isProcessing = false; document.getElementById('sdl-overlay')?.remove(); }, 5000);
 
   } catch (e) {
     console.error(e);
-    document.body.style.zoom = originalBodyStyle.zoom || "";
-    document.body.style.overflow = originalBodyStyle.overflow || "";
+    resetZoom();
+    document.body.style.overflow = originalOverflow || '';
     document.getElementById('spd-clean-style')?.remove();
     Interface.updateState('error', T.error + e.message);
     AppState.isProcessing = false;
