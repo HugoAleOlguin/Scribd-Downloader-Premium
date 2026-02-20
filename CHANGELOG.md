@@ -1,5 +1,14 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.4.3] - 2026-02-20: **Filename Fix & jsPDF Loader**
+- **UX Fix**: La descarga de PDF externo (vía "PDF Original") ahora guarda el archivo con el nombre real del documento en lugar del nombre genérico `Scribd_Document_Premium.pdf`. El nombre fluye desde el overlay → background → chrome.downloads.
+- **Loader Fix**: Corregida la detección de jsPDF en content scripts de Chrome MV3. El shim anterior intentaba simular CommonJS con `window.module`, lo cual era inefectivo. El nuevo enfoque deja que jsPDF use su rama global (`window.jspdf.jsPDF`) y simplifica `getJsPDF()` a las rutas reales.
+- **Cleanup**: Eliminado el bloque de logs de diagnóstico temporal de `content.js`.
+
+## [2.4.2] - 2026-02-20: **Hotfix (jsPDF)**
+- **Crash Fix**: Implementado un sistema de "fallback" robusto en el `content.js` para evitar caídas si la librería `jsPDF` no se carga correctamente (por ejemplo, si el usuario olvida recargar la extensión tras actualizar).
+- **Update**: Sincronización de versiones en todos los manifiestos.
+
 ## [2.4.1] - 2026-02-20: **Hotfix (I18n Safety)**
 - **Crash Fix**: Implementado un sistema de "fallback" robusto en el `content.js` para evitar caídas si la librería `i18n.js` no se carga correctamente (por ejemplo, si el usuario olvida recargar la extensión tras actualizar).
 - **Update**: Sincronización de versiones en todos los manifiestos.

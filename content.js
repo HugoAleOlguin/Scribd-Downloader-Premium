@@ -6,6 +6,9 @@
 
 // I18n loaded from libs/i18n.js
 
+
+
+
 const AppState = {
   currentDocId: null,
   isProcessing: false,
@@ -39,9 +42,19 @@ const Utils = {
     }
   }),
   getJsPDF: () => {
+    // En un content script de Chrome MV3, jsPDF UMD siempre elige la rama
+    // GLOBAL porque typeof module y typeof exports son 'undefined' dentro
+    // del scope léxico de la IIFE. Asignar window.module no las afecta.
+    // jsPDF registra su clase en: globalThis.jspdf = { jsPDF: class JsPDF... }
     if (window.jspdf?.jsPDF) return window.jspdf.jsPDF;
     if (globalThis.jspdf?.jsPDF) return globalThis.jspdf.jsPDF;
-    if (window.module?.exports?.jsPDF) return window.module.exports.jsPDF;
+
+    // Fallbacks por si alguna versión del bundle usa una clave distinta
+    if (window.jspdf?.default) return window.jspdf.default;
+
+    // Algunas builds antiguas exponían la clase directamente como window.jsPDF
+    if (typeof window.jsPDF === 'function') return window.jsPDF;
+
     return null;
   },
   getCleanFilename: () => {
@@ -74,7 +87,8 @@ const Utils = {
 const PDFHandler = {
   init: () => {
     const JsPDF = Utils.getJsPDF();
-    if (!JsPDF) throw new Error("PDF Library missing.");
+    // Si la librería no cargó, el shim no funcionó o la extensión no se recargó.
+    if (!JsPDF) throw new Error("Librería PDF no cargada. Recarga la página (F5) o reinstala la extensión.");
     const doc = new JsPDF({ orientation: 'p', unit: 'pt', format: 'a4', compress: true });
     doc.deletePage(1);
     return doc;
@@ -156,6 +170,9 @@ async function executeHQScan() {
         await PDFHandler.addPage(pdf, res.image, rect);
         const pct = Math.round(((i + 1) / total) * 100);
         Interface.updateProgress(pct, `${i + 1}/${total}`);
+      } else if (!res.success) {
+        // Fallo silencioso en captura: se continúa con las demás páginas
+        console.warn('[SPD] Captura fallida en página', i + 1, res);
       }
     }
 
@@ -192,11 +209,24 @@ const Interface = {
     if (!docId) return;
     const isEmbed = Utils.isEmbedView();
 
-    // Load Language Preference
-    chrome.storage.local.get(['language'], (res) => {
-      AppState.language = res.language || 'es';
+    // Cargar preferencia de idioma con manejo de contexto invalidado.
+    // 'Extension context invalidated' ocurre si la extensión se recargó
+    // sin recargar la pestaña del documento.
+    try {
+      chrome.storage.local.get(['language'], (res) => {
+        if (chrome.runtime.lastError) {
+          // Contexto inválido: usar idioma por defecto y continuar
+          AppState.language = 'es';
+        } else {
+          AppState.language = (res && res.language) || 'es';
+        }
+        Interface.draw(docId, isEmbed);
+      });
+    } catch (e) {
+      // Contexto de extensión ya no es válido: renderizar con fallback
+      AppState.language = 'es';
       Interface.draw(docId, isEmbed);
-    });
+    }
   },
 
   draw: async (docId, isEmbed) => {
@@ -220,15 +250,19 @@ const Interface = {
 
     // I18N TEXTS
     // I18N TEXTS - Failsafe in case I18n lib isn't loaded (e.g. extension not reloaded)
+    // Fallback usado solo si la librería i18n.js no cargó correctamente.
+    // Debe mantenerse sincronizado con libs/i18n.js.
     const FallbackI18n = {
       es: {
         overlay: {
-          title: "Scribd Premium", id: "ID Doc:", file: "Archivo:", pages: "Páginas:", analyzing: "Analizando...",
-          activate: "ACTIVAR MODO DESCARGA", hq_btn: "ESCANEO INTELIGENTE (HQ)", hq_badge: "SAFE",
-          hq_tooltip: "Captura cada página como imagen de alta resolución.",
-          adv_opts: "OPCIONES AVANZADAS", vec_btn: "PDF ORIGINAL", vec_badge: "AUTO",
-          vec_tooltip: "Intenta extraer el PDF original.",
-          states: { loading: "Cargando...", saving: "Guardando...", success: "Listo!", error: "Error: " }
+          title: "⚡ Scribd Premium", id: "ID Doc:", file: "Archivo:", pages: "Páginas:", analyzing: "Contando páginas...",
+          activate: "▶ ACTIVAR MODO DESCARGA",
+          hq_btn: "ESCANEO INTELIGENTE (HQ)", hq_badge: "100% SEGURO",
+          hq_tooltip: "Captura cada página individualmente como imagen PNG de alta resolución y las ensambla en un PDF.",
+          adv_opts: "OPCIONES AVANZADAS",
+          vec_btn: "PDF ORIGINAL", vec_badge: "AUTOMÁTICO",
+          vec_tooltip: "Intenta descargar el PDF original desde servidores externos. Si falla, usa 'Escaneo HQ'.",
+          states: { loading: "Preparando escaneo...", saving: "Generando PDF...", success: "¡PDF Guardado!", error: "Error: " }
         }
       }
     };
@@ -308,7 +342,8 @@ const Interface = {
           const slug = sanitizeFilename(docName).replace(/_/g, '-').toLowerCase();
           targetUrl = `https://es.scribd.com/document/${docId}/${slug}`;
         }
-        Utils.sendMessageAsync({ action: "open_external_downloader", docUrl: targetUrl });
+        // Pasar el nombre del documento para que se use como nombre del archivo descargado
+        Utils.sendMessageAsync({ action: "open_external_downloader", docUrl: targetUrl, docName: docName });
       };
     }
 
@@ -343,4 +378,24 @@ const Interface = {
 
 window.initSDL = () => { Interface.render(); };
 
-if (window.SDL_Started) { window.initSDL(); } else { window.SDL_Started = true; setInterval(() => { const id = Utils.getDocumentId(); if (id && !document.getElementById('sdl-overlay')) Interface.render(); }, 2000); }
+// El intervalo verifica que el contexto de la extensión siga válido antes
+// de llamar a la API. Si no, se detiene para no generar errores en consola.
+if (window.SDL_Started) {
+  window.initSDL();
+} else {
+  window.SDL_Started = true;
+  const sdlInterval = setInterval(() => {
+    // Verificar si el runtime sigue activo
+    try {
+      if (!chrome.runtime?.id) {
+        clearInterval(sdlInterval);
+        return;
+      }
+    } catch (e) {
+      clearInterval(sdlInterval);
+      return;
+    }
+    const id = Utils.getDocumentId();
+    if (id && !document.getElementById('sdl-overlay')) Interface.render();
+  }, 2000);
+}

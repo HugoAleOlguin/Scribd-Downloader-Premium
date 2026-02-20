@@ -11,34 +11,34 @@
 const I18n = {
     es: {
         toast: {
-            init: { title: "Iniciando", desc: "Conectando..." },
-            verify: { title: "Verificación", desc: "Resolviendo seguridad..." },
-            verify_done: { title: "Verificado", desc: "Accediendo..." },
-            wait: { title: "Generando Enlace", desc: "Sincronizando..." },
-            redirect: { title: "Redirigiendo", desc: "Entrando a fase final..." },
-            analyzing: { title: "Analizando Documento", desc: "Buscando flujo de datos..." },
-            validating: { title: "Verificando Integridad", desc: "Comprobando tamaño del archivo..." },
-            success: { title: "¡Documento Validado!", desc: "Descarga iniciada." },
-            error_damaged: { title: "Archivo Dañado", desc: "El PDF está vacío o corrupto.", help: "<b>Descarga Fallida:</b><br/>El archivo PDF original no está disponible o está dañado. <br/><br/>👉 <b>Solución:</b> Cierra esta pestaña y usa la opción <b>'Escaneo HQ'</b> en la extensión." },
-            error_timeout: { title: "Tiempo Agotado", desc: "El servidor no respondió." },
+            init: { title: "Iniciando", desc: "Conectando al servidor..." },
+            verify: { title: "Verificación de Seguridad", desc: "Resolviendo protección Cloudflare..." },
+            verify_done: { title: "Verificación Completada", desc: "Accediendo al documento..." },
+            wait: { title: "Generando Enlace de Descarga", desc: "Sincronizando con servidor externo..." },
+            redirect: { title: "Redirigiendo", desc: "Entrando a la fase final de descarga..." },
+            analyzing: { title: "Analizando Documento", desc: "Localizando el flujo de datos del PDF..." },
+            validating: { title: "Verificando Integridad", desc: "Comprobando tamaño y formato del archivo..." },
+            success: { title: "¡Documento Validado!", desc: "La descarga ha comenzado." },
+            error_damaged: { title: "Archivo No Disponible", desc: "El PDF está vacío o dañado.", help: "<b>Descarga Fallida:</b><br/>El archivo PDF original no está disponible o está dañado en el servidor externo. <br/><br/>👉 <b>Solución:</b> Cierra esta pestaña y usa la opción <b>'Escaneo HQ'</b> en el panel de la extensión. Este método alternativo funciona en casi todos los documentos." },
+            error_timeout: { title: "Tiempo de Espera Agotado", desc: "El servidor externo no respondió. Inténtalo de nuevo en unos minutos." },
             direct: { title: "Acceso Directo", desc: "Saltando verificación..." },
-            error_detected: { title: "Error Detectado", desc: "El visualizador indica un fallo." }
+            error_detected: { title: "Error Detectado", desc: "El visualizador indica un fallo en el archivo." }
         }
     },
     en: {
         toast: {
-            init: { title: "Starting", desc: "Connecting..." },
-            verify: { title: "Verification", desc: "Solving security..." },
-            verify_done: { title: "Verified", desc: "Accessing..." },
-            wait: { title: "Generating Link", desc: "Synchronizing..." },
-            redirect: { title: "Redirecting", desc: "Entering final phase..." },
-            analyzing: { title: "Analyzing Document", desc: "Searching data stream..." },
-            validating: { title: "Verifying Integrity", desc: "Checking file size..." },
-            success: { title: "Document Validated!", desc: "Download started." },
-            error_damaged: { title: "File Damaged", desc: "PDF is empty or corrupt.", help: "<b>Download Failed:</b><br/>Original PDF file is not available or damaged. <br/><br/>👉 <b>Solution:</b> Close this tab and use the <b>'Smart Scan (HQ)'</b> option in the extension." },
-            error_timeout: { title: "Timed Out", desc: "Server did not respond." },
+            init: { title: "Starting", desc: "Connecting to server..." },
+            verify: { title: "Security Verification", desc: "Solving Cloudflare protection..." },
+            verify_done: { title: "Verification Complete", desc: "Accessing document..." },
+            wait: { title: "Generating Download Link", desc: "Synchronizing with external server..." },
+            redirect: { title: "Redirecting", desc: "Entering final download phase..." },
+            analyzing: { title: "Analyzing Document", desc: "Locating PDF data stream..." },
+            validating: { title: "Verifying Integrity", desc: "Checking file size and format..." },
+            success: { title: "Document Validated!", desc: "Download has started." },
+            error_damaged: { title: "File Unavailable", desc: "PDF is empty or corrupt.", help: "<b>Download Failed:</b><br/>The original PDF file is not available or is corrupted on the external server. <br/><br/>👉 <b>Solution:</b> Close this tab and use the <b>'Smart Scan (HQ)'</b> option in the extension panel. This alternative method works on almost all documents." },
+            error_timeout: { title: "Request Timed Out", desc: "The external server did not respond. Try again in a few minutes." },
             direct: { title: "Direct Access", desc: "Skipping verification..." },
-            error_detected: { title: "Error Detected", desc: "Viewer indicates a failure." }
+            error_detected: { title: "Error Detected", desc: "Viewer indicates a failure in the file." }
         }
     }
 };
@@ -81,7 +81,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const isValidSize = size > 2048;
 
                 if (response.ok && isValidSize) {
-                    chrome.downloads.download({ url: request.url, filename: "Scribd_Document_Premium.pdf", saveAs: true });
+                    // Sanitizar el nombre recibido para evitar caracteres inválidos en rutas de archivo
+                    const rawName = request.docName || 'Scribd_Document_Premium';
+                    const safeFilename = rawName.replace(/[^a-z0-9\s\-_\u00C0-\u00FF]/gi, '').trim().replace(/\s+/g, '_') || 'Scribd_Document_Premium';
+                    chrome.downloads.download({ url: request.url, filename: `${safeFilename}.pdf`, saveAs: true });
                     sendResponse({ valid: true });
                 } else {
                     sendResponse({ valid: false, reason: "Invalid file size/type" });
@@ -93,7 +96,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "open_external_downloader") {
         const targetUrl = "https://scribd.vdownloaders.com/";
         chrome.tabs.create({ url: targetUrl }, async (newTab) => {
-            await StateManager.set({ docUrl: request.docUrl, active: true, tabId: newTab.id });
+            // Guardar también el nombre del documento para usarlo al descargar
+            await StateManager.set({ docUrl: request.docUrl, docName: request.docName || '', active: true, tabId: newTab.id });
             sendResponse({ success: true });
         });
         return true;
@@ -108,7 +112,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
             // Pass language to injected script
             chrome.scripting.executeScript({
                 target: { tabId: tabId },
-                func: (urlToPaste, langCode, Translations) => {
+                func: (urlToPaste, langCode, Translations, docName) => {
                     const currentUrl = window.location.href;
                     const T = Translations[langCode]?.toast || Translations['es'].toast;
 
@@ -168,7 +172,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
                                         found = true; clearInterval(checkIframe);
                                         const directPdfUrl = decodeURIComponent(urlParam);
                                         updateStatusUI(3, T.validating.title, T.validating.desc, "wait");
-                                        chrome.runtime.sendMessage({ action: "validate_download", url: directPdfUrl }, (r) => {
+                                        chrome.runtime.sendMessage({ action: "validate_download", url: directPdfUrl, docName: docName }, (r) => {
                                             if (r && r.valid) { updateStatusUI(4, T.success.title, T.success.desc, "success"); }
                                             else { updateStatusUI(4, T.error_damaged.title, T.error_damaged.desc, "error", T.error_damaged.help); }
                                         });
@@ -228,7 +232,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
                         }
                     }
                 },
-                args: [state.docUrl, state.language, I18n]
+                args: [state.docUrl, state.language, I18n, state.docName || '']
             });
         }
     }

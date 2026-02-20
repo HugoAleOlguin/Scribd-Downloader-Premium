@@ -10,7 +10,7 @@ Una suite de herramientas profesional para navegadores (Chromium/Firefox) diseñ
 
 Puedes descargar la última versión estable (ZIP) desde la página de Releases oficial:
 
-[![Download Latest Release](https://img.shields.io/badge/Download-Latest_Release-0f766e?style=for-the-badge&logo=github)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/tag/1.4.0/)
+[![Download Latest Release](https://img.shields.io/badge/Download-Latest_Release-0f766e?style=for-the-badge&logo=github)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/tag/2.4.3/)
 
 ---
 

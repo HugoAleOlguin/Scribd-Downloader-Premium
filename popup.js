@@ -15,10 +15,10 @@ function updateUI(lang) {
     document.getElementById('txt-subtitle').innerText = t.subtitle;
     document.getElementById('txt-status').innerText = t.status;
 
-    // Use innerHTML for formatting tags like <strong>
+    // innerHTML en todos los steps porque las traducciones pueden tener etiquetas <strong>
     document.getElementById('txt-step1').innerHTML = t.step1;
-    document.getElementById('txt-step2').innerText = t.step2;
-    document.getElementById('txt-step3').innerText = t.step3;
+    document.getElementById('txt-step2').innerHTML = t.step2;
+    document.getElementById('txt-step3').innerHTML = t.step3;
     document.getElementById('txt-footer').innerText = t.footer;
 
     // Toggle Buttons
