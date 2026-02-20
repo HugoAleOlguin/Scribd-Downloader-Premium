@@ -1,19 +1,26 @@
-*.crx
-*.zip
-*.pem
+# Build output (generado por build.ps1, no editar)
+/chrome/
+/firefox/
 /dist/
+
+# Sistema
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Editores
 .vscode/
 .idea/
+
+# Internos
 .agent/
 .gemini/
 *.log
-npm-debug.log*
-node_modules/
-package-lock.json
-/test/
-/screenshots/
 *.tmp
+*.pem
+*.zip
+*.crx
+
+# Legacy
 manifest.chrome.backup.json
+node_modules/
