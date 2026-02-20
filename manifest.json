@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Scribd Premium Downloader",
-  "version": "2.1.0",
+  "version": "2.3.0",
   "description": "Suite profesional para la gestión, respaldo y lectura offline de documentos de Scribd. Soporte nativo para PDF original y escaneo HQ.",
   "permissions": [
     "activeTab",
