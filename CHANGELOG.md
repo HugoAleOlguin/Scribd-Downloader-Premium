@@ -1,5 +1,11 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.4.0] - 2026-02-20: **International Release (i18n)**
+- **Multi-Language Support**: Nueva opción en el popup para cambiar entre **Español (ES)** e **Inglés (EN)** en tiempo real.
+- **Full Translation**: Todos los elementos de la interfaz, tooltips, notificaciones y errores ahora están disponibles en ambos idiomas.
+- **Firefox MV3 Compatibility**: Añadido soporte oficial para Firefox mediante `manifest-firefox.json` (soluciona el error de `service_worker disabled`).
+- **Core Optimization**: Refactorización del manejo de estados para soportar textos dinámicos sin recargar la extensión.
+
 ## [2.3.1] - 2026-02-20: **Chrome Compatibility & Stealth Fix**
 - **Scribd Detection Fix**: Corregido un error donde Scribd bloqueaba el acceso (Adblock Warning) al inyectar scripts en iframes publicitarios. Ahora la inyección está limitada a `all_frames: false`.
 - **Chrome MV3 Fix**: Migración completa a Service Workers (`background.service_worker`) para cumplir con los estándares estrictos de Chrome Web Store.
@@ -11,37 +17,36 @@
 - **Native Download**: Migración a `chrome.downloads` API para mayor estabilidad.
 
 ## [2.2.0] - 2026-02-20: **Release Candidate (GitHub)**
-- **Refactoring**: Limpieza completa del código fuente para eliminar logs de depuración y comentarios internos.
-- **UI Popup**: Nuevo diseño estilo GitHub/Vercel (Inter Font, Dark Mode) con enlace destacado al repositorio.
-- **Background**: Estandarización de nombres de variables y funciones (paso de `automationState` a `AppState`).
-- **Docs**: README.md profesional y adaptado para GitHub.
-- **Cleanup**: Eliminación de archivos legacy (`manager.js`, `manager.html`).
+- **Refactoring**: Limpieza completa del código fuente.
+- **UI Popup**: Nuevo diseño estilo GitHub/Vercel.
+- **Background**: Estandarización de nombres.
+- **Docs**: README.md profesional.
+- **Cleanup**: Eliminación de archivos legacy.
 
 ## [2.1.0] - 2026-02-20: **Premium Rebranding**
 - **Nuevo Nombre**: "Scribd Premium Downloader".
-- **UI Overlay**: Incorporación de Tooltips explicativos y badges (HQ, AUTO, BETA).
-- **Error Handling**: Aumento del timeout de espera a 30s para conexiones lentas.
-- **Smart Feedback**: El sistema de notificaciones ahora sugiere el método alternativo si uno falla.
+- **UI Overlay**: Incorporación de Tooltips y badges.
+- **Error Handling**: Aumento del timeout de espera a 30s.
 
 ## [2.0.0] - 2026-02-20: **Mission Control UI**
-- **Notificaciones**: Reemplazo de los "Toasts" simples por un panel de control flotante con barra de progreso.
-- **Iconos**: Nuevos iconos vectoriales para cada estado (Iniciando, Verificando, Descargando).
-- **Feedback Visual**: Animaciones de entrada/salida y estilos Glassmorphism.
+- **Notificaciones**: Reemplazo de los "Toasts" simples.
+- **Iconos**: Nuevos iconos vectoriales.
+- **Feedback Visual**: Animaciones Glassmorphism.
 
 ## [1.9.5] - 2026-02-20: **Autopilot Stable**
-- **Logic Fix**: Implementación de lógica mutuamente exclusiva para evitar bucles infinitos entre pantallas de espera.
-- **Timer Skip**: Detección inteligente del enlace final incluso antes de que el contador llegue a cero.
+- **Logic Fix**: Evitación de bucles infinitos.
+- **Timer Skip**: Detección inteligente.
 
 ## [1.9.0] - 2026-02-20: **The Bridge (Autopilot)**
-- **Automatización**: Soporte para resolver Captchas (Turnstile) y navegar automáticamente por sitios de descarga externos.
-- **Multi-Tab**: Gestión de pestañas y comunicación segura entre Content Script y Background Script.
+- **Automatización**: Soporte para Captchas.
+- **Multi-Tab**: Gestión de pestañas.
 
 ## [1.5.0] - 2026-01-15: **Image Processing Engine**
-- **PDF Generation**: Integración de `jspdf` para ensamblar imágenes en un solo archivo PDF.
-- **Auto-Scroll**: Script de desplazamiento automático para cargar todas las páginas (Lazy Loading).
-- **Zoom Optimization**: Ajuste automático del zoom del navegador para capturar la máxima resolución posible.
+- **PDF Generation**: Integración de `jspdf`.
+- **Auto-Scroll**: Script de carga diferida.
+- **Zoom Optimization**: Ajuste automático del zoom.
 
 ## [1.0.0] - 2025-12-01: **Initial Release**
-- **Core Feature**: Capacidad básica de captura de pantalla de documentos Scribd.
-- **UI**: Botones inyectados en la interfaz de Scribd.
-- **Storage**: Sistema básico de guardado de nombres de archivos.
+- **Core Feature**: Captura de pantalla básica.
+- **UI**: Botones inyectados.
+- **Storage**: Sistema básico de guardado.

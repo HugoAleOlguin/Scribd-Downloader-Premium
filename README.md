@@ -1,10 +1,10 @@
 # 📄 Scribd Premium Downloader
 
-![Version 2.3.0](https://img.shields.io/github/v/release/HugoAleOlguin/Scribd-Downloader-Premium?style=flat-square&color=0f766e)
+![Version 2.4.0](https://img.shields.io/github/v/release/HugoAleOlguin/Scribd-Downloader-Premium?style=flat-square&color=0f766e)
 ![Status](https://img.shields.io/badge/status-active-success?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
-Una suite de herramientas profesional para navegadores (Chromium) diseñada para gestionar, respaldar y descargar documentos de Scribd.
+Una suite de herramientas profesional para navegadores (Chromium/Firefox) diseñada para gestionar, respaldar y descargar documentos de Scribd.
 
 ## 📥 Descarga
 
@@ -28,19 +28,30 @@ Utiliza un sistema avanzado de automatización ("Autopilot") para conectar con s
 - **Detección de Enlaces**: Automatiza la búsqueda del endpoint de descarga.
 - **Bypass de Espera**: Gestiona automáticamente los tiempos de espera y verificaciones de seguridad.
 
+### 3. Soporte Internacional (v2.4)
+- Interfaz completa traducida a **Español 🇪🇸** e **Inglés 🇺🇸**.
+- Selector de idioma integrado en el popup.
+
 ---
 
 ## 🚀 Instalación en Modo Desarrollador
 
 Esta extensión no está en la Web Store por motivos de política de contenido. Para instalarla:
 
-1.  Descarga el código fuente (ZIP) desde [Releases](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/).
-2.  Descomprime el archivo en una carpeta segura.
-3.  Abre tu navegador basado en Chromium (Chrome, Edge, Brave, Opera).
-4.  Ve a `chrome://extensions/`.
-5.  Activa el "Modo de desarrollador" (esquina superior derecha).
-6.  Haz clic en "Cargar descomprimida".
-7.  Selecciona la carpeta donde descomprimiste el proyecto.
+### **Google Chrome, Brave, Edge, Opera**
+1.  Descarga el código fuente (ZIP).
+2.  Descomprime el archivo.
+3.  Ve a `chrome://extensions/`.
+4.  Activa el "Modo de desarrollador".
+5.  Haz clic en "Cargar descomprimida" y selecciona la carpeta.
+
+### **Mozilla Firefox**
+1.  Descarga el código fuente (ZIP).
+2.  Descomprime el archivo.
+3.  **IMPORTANTE**: Renombra el archivo `manifest-firefox.json` a `manifest.json` (reemplazando el existente).
+4.  Ve a `about:debugging#/runtime/this-firefox`.
+5.  Haz clic en "Cargar complemento temporal...".
+6.  Selecciona el archivo `manifest.json`.
 
 ---
 

@@ -1,32 +1,19 @@
-# Extensions & Build Artifacts
 *.crx
 *.zip
 *.pem
 /build/
 /dist/
-
-# System Files
 Thumbs.db
 desktop.ini
 .DS_Store
-
-# IDE Settings
 .vscode/
 .idea/
-
-# Internal Agent Files
 .agent/
 .gemini/
-
-# Logs
 *.log
 npm-debug.log*
-
-# Node Modules (if applicable later)
 node_modules/
 package-lock.json
-
-# Screenshots & Tests
 /test/
 /screenshots/
 *.tmp
