@@ -1,18 +1,20 @@
 /**
  * Scribd Premium Downloader
- * Content Script
- * @version 2.2.0
+ * Content Script with i18n
+ * @version 2.4.0
  */
 
-// Core State
+// I18n loaded from libs/i18n.js
+
 const AppState = {
   currentDocId: null,
   isProcessing: false,
   cachedName: null,
-  cachedUrl: null
+  cachedUrl: null,
+  language: 'es' // Default
 };
 
-// Utilities
+// ... Utils and PDFHandler (unchanged) ...
 const Utils = {
   getDocumentId: () => {
     try {
@@ -110,7 +112,11 @@ const PDFHandler = {
 async function executeHQScan() {
   if (AppState.isProcessing) return;
   AppState.isProcessing = true;
-  Interface.updateState('loading', 'Preparando...');
+
+  // Get translations for dynamic states
+  const T = (window.I18n && window.I18n[AppState.language]) ? window.I18n[AppState.language].overlay.states : window.I18n.es.overlay.states;
+
+  Interface.updateState('loading', T.loading);
 
   const originalBodyStyle = { ...document.body.style };
 
@@ -123,7 +129,7 @@ async function executeHQScan() {
 
     const pages = document.querySelectorAll("div.outer_page_container div[id^='outer_page_']");
     const total = pages.length;
-    if (total === 0) throw new Error("No se detectaron páginas.");
+    if (total === 0) throw new Error("No pages found.");
 
     for (let i = 0; i < total; i++) {
       const page = pages[i];
@@ -146,14 +152,14 @@ async function executeHQScan() {
       if (res.success && res.image) {
         await PDFHandler.addPage(pdf, res.image, rect);
         const pct = Math.round(((i + 1) / total) * 100);
-        Interface.updateProgress(pct, `Procesando ${i + 1}/${total}`);
+        Interface.updateProgress(pct, `${i + 1}/${total}`);
       }
     }
 
-    Interface.updateState('saving', 'Guardando...');
+    Interface.updateState('saving', T.saving);
     const fname = Utils.getCleanFilename();
     pdf.save(`${fname}.pdf`);
-    Interface.updateState('success', '¡Listo!');
+    Interface.updateState('success', T.success);
 
     // Cleanup
     document.body.style.zoom = originalBodyStyle.zoom || "";
@@ -166,7 +172,7 @@ async function executeHQScan() {
     document.body.style.zoom = originalBodyStyle.zoom || "";
     document.body.style.overflow = originalBodyStyle.overflow || "";
     document.getElementById('spd-clean-style')?.remove();
-    Interface.updateState('error', 'Error: ' + e.message);
+    Interface.updateState('error', T.error + e.message);
     AppState.isProcessing = false;
     if (document.getElementById('sdl-overlay')) document.getElementById('sdl-overlay').style.display = 'flex';
   }
@@ -183,6 +189,14 @@ const Interface = {
     if (!docId) return;
     const isEmbed = Utils.isEmbedView();
 
+    // Load Language Preference
+    chrome.storage.local.get(['language'], (res) => {
+      AppState.language = res.language || 'es';
+      Interface.draw(docId, isEmbed);
+    });
+  },
+
+  draw: async (docId, isEmbed) => {
     let storedData = { name: null, fullUrl: null };
     try { storedData = await Utils.loadDocData(docId); } catch (e) { }
 
@@ -200,18 +214,22 @@ const Interface = {
     }
 
     const docName = AppState.cachedName || Utils.getCleanFilename();
+
+    // I18N TEXTS
+    const T = (window.I18n && window.I18n[AppState.language]) ? window.I18n[AppState.language].overlay : window.I18n.es.overlay;
+
     const overlay = document.createElement('div');
     overlay.id = 'sdl-overlay';
 
     let contentHtml = `
             <div class="sdl-card sdl-glass">
                 <div class="sdl-header">
-                    <span class="sdl-brand">⚡ Scribd Premium</span>
+                    <span class="sdl-brand">${T.title}</span>
                     <button class="sdl-close">×</button>
                 </div>
                 <div class="sdl-info-grid">
-                    <div class="sdl-row"><span class="sdl-label">ID Doc:</span><span class="sdl-value">${docId}</span></div>
-                    <div class="sdl-row"><span class="sdl-label">Archivo:</span><span class="sdl-value sdl-truncate" title="${docName}">${docName}</span></div>
+                    <div class="sdl-row"><span class="sdl-label">${T.id}</span><span class="sdl-value">${docId}</span></div>
+                    <div class="sdl-row"><span class="sdl-label">${T.file}</span><span class="sdl-value sdl-truncate" title="${docName}">${docName}</span></div>
         `;
 
     if (!isEmbed) {
@@ -220,7 +238,7 @@ const Interface = {
                 <div class="sdl-actions">
                     <div class="sdl-btn-container">
                         <button id="sdl-action-btn" class="sdl-btn sdl-btn-glow">
-                            <span>ACTIVAR MODO DESCARGA</span>
+                            <span>${T.activate}</span>
                             <span class="sdl-badge">GO</span>
                         </button>
                     </div>
@@ -229,27 +247,27 @@ const Interface = {
     } else {
       const pageCount = Utils.countPages();
       contentHtml += `
-                    <div class="sdl-row"><span class="sdl-label">Páginas:</span><span class="sdl-value">${pageCount > 0 ? pageCount : 'Analizando...'}</span></div>
+                    <div class="sdl-row"><span class="sdl-label">${T.pages}</span><span class="sdl-value">${pageCount > 0 ? pageCount : T.analyzing}</span></div>
                 </div>
                 <div class="sdl-progress-track"><div id="sdl-progress-fill"></div></div>
                 
                 <div class="sdl-actions">
                     <div class="sdl-btn-container">
                         <button id="sdl-action-btn" class="sdl-btn sdl-btn-primary">
-                            <span>ESCANEO INTELIGENTE (HQ)</span>
-                            <span class="sdl-badge safe">100% SEGURO</span>
+                            <span>${T.hq_btn}</span>
+                            <span class="sdl-badge safe">${T.hq_badge}</span>
                         </button>
-                        <span class="sdl-tooltip">Captura cada página como imagen de alta resolución. Sólido y fiable si otros métodos fallan.</span>
+                        <span class="sdl-tooltip">${T.hq_tooltip}</span>
                     </div>
 
-                    <div class="sdl-divider">OPCIONES AVANZADAS</div>
+                    <div class="sdl-divider">${T.adv_opts}</div>
 
                     <div class="sdl-btn-container">
                         <button id="sdl-bridge-btn" class="sdl-btn sdl-btn-vector">
-                            <span>PDF ORIGINAL</span>
-                            <span class="sdl-badge beta">AUTO</span>
+                            <span>${T.vec_btn}</span>
+                            <span class="sdl-badge beta">${T.vec_badge}</span>
                         </button>
-                        <span class="sdl-tooltip">Intenta automatizar la extracción del archivo PDF original desde servidores externos.</span>
+                        <span class="sdl-tooltip">${T.vec_tooltip}</span>
                     </div>
                 </div>
             `;
@@ -279,7 +297,16 @@ const Interface = {
 
     const closeBtn = overlay.querySelector('.sdl-close');
     if (closeBtn) closeBtn.onclick = () => overlay.remove();
+
+    // Listen for language changes live
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.language) {
+        overlay.remove();
+        Interface.render();
+      }
+    });
   },
+
   updateState: (state, text) => {
     const btn = document.getElementById('sdl-action-btn');
     if (btn) {
