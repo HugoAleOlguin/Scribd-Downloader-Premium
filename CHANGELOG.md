@@ -1,5 +1,9 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.4.1] - 2026-02-20: **Hotfix (I18n Safety)**
+- **Crash Fix**: Implementado un sistema de "fallback" robusto en el `content.js` para evitar caídas si la librería `i18n.js` no se carga correctamente (por ejemplo, si el usuario olvida recargar la extensión tras actualizar).
+- **Update**: Sincronización de versiones en todos los manifiestos.
+
 ## [2.4.0] - 2026-02-20: **International Release (i18n)**
 - **Multi-Language Support**: Nueva opción en el popup para cambiar entre **Español (ES)** e **Inglés (EN)** en tiempo real.
 - **Full Translation**: Todos los elementos de la interfaz, tooltips, notificaciones y errores ahora están disponibles en ambos idiomas.

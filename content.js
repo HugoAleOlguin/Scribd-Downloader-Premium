@@ -114,7 +114,10 @@ async function executeHQScan() {
   AppState.isProcessing = true;
 
   // Get translations for dynamic states
-  const T = (window.I18n && window.I18n[AppState.language]) ? window.I18n[AppState.language].overlay.states : window.I18n.es.overlay.states;
+  // Robust Fallback for HQ Scan states
+  const FallbackStates = { loading: "Cargando...", saving: "Guardando...", success: "Listo!", error: "Error: " };
+  const I18nSafe = window.I18n || { es: { overlay: { states: FallbackStates } } };
+  const T = (I18nSafe[AppState.language]?.overlay?.states) || I18nSafe.es?.overlay?.states || FallbackStates;
 
   Interface.updateState('loading', T.loading);
 
@@ -216,7 +219,21 @@ const Interface = {
     const docName = AppState.cachedName || Utils.getCleanFilename();
 
     // I18N TEXTS
-    const T = (window.I18n && window.I18n[AppState.language]) ? window.I18n[AppState.language].overlay : window.I18n.es.overlay;
+    // I18N TEXTS - Failsafe in case I18n lib isn't loaded (e.g. extension not reloaded)
+    const FallbackI18n = {
+      es: {
+        overlay: {
+          title: "Scribd Premium", id: "ID Doc:", file: "Archivo:", pages: "Páginas:", analyzing: "Analizando...",
+          activate: "ACTIVAR MODO DESCARGA", hq_btn: "ESCANEO INTELIGENTE (HQ)", hq_badge: "SAFE",
+          hq_tooltip: "Captura cada página como imagen de alta resolución.",
+          adv_opts: "OPCIONES AVANZADAS", vec_btn: "PDF ORIGINAL", vec_badge: "AUTO",
+          vec_tooltip: "Intenta extraer el PDF original.",
+          states: { loading: "Cargando...", saving: "Guardando...", success: "Listo!", error: "Error: " }
+        }
+      }
+    };
+    const I18nSafe = window.I18n || FallbackI18n;
+    const T = (I18nSafe[AppState.language] && I18nSafe[AppState.language].overlay) ? I18nSafe[AppState.language].overlay : (I18nSafe.es?.overlay || FallbackI18n.es.overlay);
 
     const overlay = document.createElement('div');
     overlay.id = 'sdl-overlay';
