@@ -1,7 +1,6 @@
 *.crx
 *.zip
 *.pem
-/build/
 /dist/
 Thumbs.db
 desktop.ini
@@ -17,3 +16,4 @@ package-lock.json
 /test/
 /screenshots/
 *.tmp
+manifest.chrome.backup.json
