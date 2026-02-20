@@ -34,7 +34,7 @@ Utiliza un sistema avanzado de automatización ("Autopilot") para conectar con s
 
 Esta extensión no está en la Web Store por motivos de política de contenido. Para instalarla:
 
-1.  Descarga el código fuente (ZIP) desde [Releases](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/).
+1.  Descarga el código fuente (ZIP) desde [Releases](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/tag/1.4.0).
 2.  Descomprime el archivo en una carpeta segura.
 3.  Abre tu navegador basado en Chromium (Chrome, Edge, Brave, Opera).
 4.  Ve a `chrome://extensions/`.
