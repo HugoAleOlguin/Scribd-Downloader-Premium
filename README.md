@@ -46,7 +46,7 @@ C:\Extensiones\scribd-downloader\
 
 ### 2 — Ejecuta el build
 
-Dentro de la carpeta descomprimida, haz **click derecho** sobre `build.ps1` → **"Ejecutar con PowerShell"**.
+Dentro de la carpeta descomprimida, haz **doble clic** sobre `build.bat`.
 
 Esto genera automáticamente dos carpetas listas para instalar:
 
@@ -143,12 +143,11 @@ scribd-downloader/
 └── build.ps1              ← ensambla src/ → chrome/ y firefox/
 ```
 
-**Para desarrollar:** edita los archivos en `src/`, luego ejecuta `build.ps1` para regenerar las carpetas instalables.
+**Para desarrollar:** edita los archivos en `src/`, luego haz doble clic en `build.bat` para regenerar las carpetas instalables.
 
-También puedes hacer build de un solo navegador:
-```powershell
-powershell -File build.ps1 -Browser chrome
-powershell -File build.ps1 -Browser firefox
+También puedes correrlo desde consola:
+```bat
+build.bat
 ```
 
 ---
