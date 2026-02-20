@@ -1,10 +1,18 @@
 # 📄 Scribd Premium Downloader
 
-![Version 2.2.0](https://img.shields.io/badge/version-2.2.0-0f766e?style=flat-square)
+![Version 2.3.0](https://img.shields.io/github/v/release/HugoAleOlguin/Scribd-Downloader-Premium?style=flat-square&color=0f766e)
 ![Status](https://img.shields.io/badge/status-active-success?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
 Una suite de herramientas profesional para navegadores (Chromium) diseñada para gestionar, respaldar y descargar documentos de Scribd.
+
+## 📥 Descarga
+
+Puedes descargar la última versión estable (ZIP) desde la página de Releases oficial:
+
+[![Download Latest Release](https://img.shields.io/badge/Download-Latest_Release-0f766e?style=for-the-badge&logo=github)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
+
+---
 
 ## ✨ Características
 
@@ -16,22 +24,23 @@ Genera una copia de seguridad del documento capturando cada página como una ima
 
 ### 2. Capa Vectorial (Modo Automático)
 Utiliza un sistema avanzado de automatización ("Autopilot") para conectar con servicios externos y recuperar el archivo PDF original (Vectorial/Texto) cuando está disponible.
+- **Smart Validation**: Verifica la integridad del archivo antes de descargar (evita PDFs dañados/vacíos).
 - **Detección de Enlaces**: Automatiza la búsqueda del endpoint de descarga.
 - **Bypass de Espera**: Gestiona automáticamente los tiempos de espera y verificaciones de seguridad.
-- **Extracción Segura**: Detecta el flujo de datos final y fuerza la descarga segura.
 
 ---
 
 ## 🚀 Instalación en Modo Desarrollador
 
-Esta extensión no está en la Chrome Web Store por motivos de política de contenido. Para instalarla:
+Esta extensión no está en la Web Store por motivos de política de contenido. Para instalarla:
 
-1.  Descarga el código fuente (ZIP) o clona este repositorio.
-2.  Abre tu navegador basado en Chromium (Chrome, Edge, Brave, Opera).
-3.  Ve a `chrome://extensions/`.
-4.  Activa el "Modo de desarrollador" (esquina superior derecha).
-5.  Haz clic en "Cargar descomprimida".
-6.  Selecciona la carpeta donde descargaste el proyecto.
+1.  Descarga el código fuente (ZIP) desde [Releases](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/).
+2.  Descomprime el archivo en una carpeta segura.
+3.  Abre tu navegador basado en Chromium (Chrome, Edge, Brave, Opera).
+4.  Ve a `chrome://extensions/`.
+5.  Activa el "Modo de desarrollador" (esquina superior derecha).
+6.  Haz clic en "Cargar descomprimida".
+7.  Selecciona la carpeta donde descomprimiste el proyecto.
 
 ---
 
