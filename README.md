@@ -73,6 +73,20 @@ El usuario es responsable del uso que le de a esta herramienta. No apoyamos la p
 
 ---
 
+## Disclaimer ⚠️
+
+**This project is for educational and research purposes only.** 
+
+*   **Usage:** The author is not responsible for any misuse of this tool. Users are responsible for complying with the terms of service of any website they interact with (specifically Scribd).
+*   **Copyright:** This extension does not bypass payment walls or premium security measures. It is designed to automate processes that a user could otherwise do manually.
+*   **No Warranty:** This software is provided "as is", without warranty of any kind. Use it at your own risk.
+
+## License 📄
+
+This project is licensed under the **MIT License**. This means you are free to use, copy, and modify the code, but you must include the original copyright notice and this permission notice in any copies or substantial portions of the software.
+
+---
+
 ## 👨‍💻 Autor
 
 Desarrollado con ❤️ por **[HugoAleOlguin](https://github.com/HugoAleOlguin)**.
