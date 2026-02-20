@@ -1,5 +1,10 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.3.1] - 2026-02-20: **Chrome Compatibility & Stealth Fix**
+- **Scribd Detection Fix**: Corregido un error donde Scribd bloqueaba el acceso (Adblock Warning) al inyectar scripts en iframes publicitarios. Ahora la inyección está limitada a `all_frames: false`.
+- **Chrome MV3 Fix**: Migración completa a Service Workers (`background.service_worker`) para cumplir con los estándares estrictos de Chrome Web Store.
+- **State Persistence**: Implementación de `chrome.storage.local` para mantener el estado de la automatización vivo entre suspensiones del navegador.
+
 ## [2.3.0] - 2026-02-20: **Integrity Check**
 - **Smart Validation**: Implementado un sistema de "Pre-flight Check" que verifica la integridad del archivo PDF (tamaño > 2KB y tipo MIME) antes de descargarlo.
 - **Error Fallback**: Si el PDF remoto está corrupto o vacío (bug común en vDownloaders), ahora se muestra un error claro sugiriendo el uso del "Escaneo HQ".
