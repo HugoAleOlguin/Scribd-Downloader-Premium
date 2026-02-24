@@ -15,7 +15,7 @@ const I18n = {
             step1: "Abre cualquier documento en <strong>Scribd</strong> (libros, artículos, presentaciones, etc.). Asegúrate de que el documento sea accesible.",
             step2: "Aparecerá un <strong>panel flotante</strong> en la esquina de la pantalla. Si no lo ves, recarga la página con F5.",
             step3: "Elige <strong>'Escaneo HQ'</strong> para capturar página a página o <strong>'PDF Original'</strong> para intentar descargar el archivo nativo.",
-            footer: "v2.4.3 Premium — Código Abierto"
+            footer: "v2.5.6 Premium — Código Abierto"
         },
         overlay: {
             title: "⚡ Scribd Premium",
@@ -79,7 +79,7 @@ const I18n = {
             step1: "Open any document on <strong>Scribd</strong> (books, articles, presentations, etc.). Make sure the document page is fully loaded.",
             step2: "A <strong>floating panel</strong> will appear in the corner of the screen. If you don't see it, reload the page with F5.",
             step3: "Choose <strong>'Smart Scan (HQ)'</strong> to capture each page individually (recommended) or <strong>'Original PDF'</strong> to attempt a direct native download.",
-            footer: "v2.4.3 Premium — Open Source"
+            footer: "v2.5.6 Premium — Open Source"
         },
         overlay: {
             title: "⚡ Scribd Premium",
