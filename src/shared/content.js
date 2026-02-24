@@ -158,7 +158,6 @@ async function executeHQScan() {
   const originalOverflow = document.body.style.overflow;
 
   try {
-    const pdf = PDFHandler.init();
     const styleEl = document.createElement('style');
     styleEl.id = 'spd-clean-style';
     styleEl.innerHTML = `.toolbar_drop, .global_header, .mobile_overlay, #scribd_c_wrapper, .promo_banner { display: none !important; } .document_scroller { overflow: hidden !important; padding: 0 !important; margin: 0 !important; } .outer_page_container { margin: 0 auto !important; padding: 0 !important; border: none !important; box-shadow: none !important; } body { background: #fff !important; overflow: hidden !important; }`;
@@ -168,37 +167,60 @@ async function executeHQScan() {
     const total = pages.length;
     if (total === 0) throw new Error("No pages found.");
 
-    for (let i = 0; i < total; i++) {
-      const page = pages[i];
-      const viewportH = window.innerHeight; const pageH = page.offsetHeight; const pageW = page.offsetWidth; const viewportW = window.innerWidth;
-      let zoomH = viewportH / pageH; let zoomW = viewportW / pageW;
-      let targetZoom = Math.min(zoomH, zoomW, 1) * 0.98;
-      applyZoom(targetZoom);
-      page.scrollIntoView({ behavior: 'instant', block: 'center' });
+    const fname = Utils.getCleanFilename();
 
-      await new Promise(r => setTimeout(r, 1200));
-      const rect = page.getBoundingClientRect();
+    // Dividimos en lotes para evitar "invalid string length" en documentos grandes.
+    // El motor V8 tiene un límite ~512 MB para strings; acumular cientos de páginas
+    // en PNG dentro de un único jsPDF lo supera. Guardamos un PDF por lote y
+    // dejamos que el GC libere memoria entre lotes.
+    const PAGES_PER_CHUNK = 100;
+    const totalChunks = Math.ceil(total / PAGES_PER_CHUNK);
+    const needsChunking = totalChunks > 1;
 
-      const overlay = document.getElementById('sdl-overlay');
-      if (overlay) overlay.style.display = 'none';
-      await new Promise(r => setTimeout(r, 200));
+    for (let chunk = 0; chunk < totalChunks; chunk++) {
+      const chunkStart = chunk * PAGES_PER_CHUNK;
+      const chunkEnd = Math.min(chunkStart + PAGES_PER_CHUNK, total);
+      const chunkLabel = needsChunking ? ` (parte ${chunk + 1}/${totalChunks})` : '';
 
-      const res = await Utils.sendMessageAsync({ action: "capture_tab" });
-      if (overlay) overlay.style.display = 'flex';
+      // Nuevo documento por lote → se libera al llamar pdf.save()
+      const pdf = PDFHandler.init();
 
-      if (res.success && res.image) {
-        await PDFHandler.addPage(pdf, res.image, rect);
-        const pct = Math.round(((i + 1) / total) * 100);
-        Interface.updateProgress(pct, `${i + 1}/${total}`);
-      } else if (!res.success) {
-        // Fallo silencioso en captura: se continúa con las demás páginas
-        console.warn('[SPD] Captura fallida en página', i + 1, res);
+      for (let i = chunkStart; i < chunkEnd; i++) {
+        const page = pages[i];
+        const viewportH = window.innerHeight; const pageH = page.offsetHeight; const pageW = page.offsetWidth; const viewportW = window.innerWidth;
+        let zoomH = viewportH / pageH; let zoomW = viewportW / pageW;
+        let targetZoom = Math.min(zoomH, zoomW, 1) * 0.98;
+        applyZoom(targetZoom);
+        page.scrollIntoView({ behavior: 'instant', block: 'center' });
+
+        await new Promise(r => setTimeout(r, 1200));
+        const rect = page.getBoundingClientRect();
+
+        const overlay = document.getElementById('sdl-overlay');
+        if (overlay) overlay.style.display = 'none';
+        await new Promise(r => setTimeout(r, 200));
+
+        const res = await Utils.sendMessageAsync({ action: "capture_tab" });
+        if (overlay) overlay.style.display = 'flex';
+
+        if (res.success && res.image) {
+          await PDFHandler.addPage(pdf, res.image, rect);
+          // Mostrar progreso global (no local al chunk)
+          const pct = Math.round(((i + 1) / total) * 100);
+          Interface.updateProgress(pct, `${i + 1}/${total}${chunkLabel}`);
+        } else if (!res.success) {
+          // Fallo silencioso: se salta la página y se continúa
+          console.warn('[SPD] Captura fallida en página', i + 1, res);
+        }
       }
+
+      // Guardar el lote y dar tiempo al GC antes de iniciar el siguiente
+      Interface.updateState('saving', T.saving + chunkLabel);
+      const partSuffix = needsChunking ? `_parte_${chunk + 1}_de_${totalChunks}` : '';
+      pdf.save(`${fname}${partSuffix}.pdf`);
+      await new Promise(r => setTimeout(r, 800));
     }
 
-    Interface.updateState('saving', T.saving);
-    const fname = Utils.getCleanFilename();
-    pdf.save(`${fname}.pdf`);
     Interface.updateState('success', T.success);
 
     // Cleanup
@@ -282,6 +304,7 @@ const Interface = {
           adv_opts: "OPCIONES AVANZADAS",
           vec_btn: "PDF ORIGINAL", vec_badge: "AUTOMÁTICO",
           vec_tooltip: "Intenta descargar el PDF original desde servidores externos. Si falla, usa 'Escaneo HQ'.",
+          large_doc_warning: "⚠️ Documento grande detectado ({pages} páginas). El Escaneo HQ generará múltiples archivos y tardará horas. Se recomienda 100% usar \"PDF Original\".",
           states: { loading: "Preparando escaneo...", saving: "Generando PDF...", success: "¡PDF Guardado!", error: "Error: " }
         }
       }
@@ -317,20 +340,42 @@ const Interface = {
             `;
     } else {
       const pageCount = Utils.countPages();
+
+      // Umbral a partir del cual advertimos al usuario: documentos grandes
+      // tardan horas en el modo HQ y generan múltiples archivos.
+      const LARGE_DOC_THRESHOLD = 100;
+      const isLargeDoc = pageCount >= LARGE_DOC_THRESHOLD;
+
+      // Construir el mensaje interpolando el número real de páginas
+      const warningText = isLargeDoc
+        ? (T.large_doc_warning || '⚠️ Large document detected.').replace('{pages}', pageCount)
+        : '';
+
       contentHtml += `
                     <div class="sdl-row"><span class="sdl-label">${T.pages}</span><span class="sdl-value">${pageCount > 0 ? pageCount : T.analyzing}</span></div>
                 </div>
                 <div class="sdl-progress-track"><div id="sdl-progress-fill"></div></div>
-                
-                <div class="sdl-actions">
+
+                ${isLargeDoc ? `
+                <div class="sdl-large-doc-warning">
+                  <p class="sdl-warning-text">${warningText}</p>
+                  <button id="sdl-warning-pdf-btn" class="sdl-btn sdl-btn-vector sdl-btn-warning-cta">
+                    <span>${T.vec_btn}</span>
+                    <span class="sdl-badge beta">${T.vec_badge}</span>
+                  </button>
+                </div>` : ''}
+
+                 <div class="sdl-actions">
                     <div class="sdl-btn-container">
                         <button id="sdl-action-btn" class="sdl-btn sdl-btn-primary">
                             <span>${T.hq_btn}</span>
                             <span class="sdl-badge safe">${T.hq_badge}</span>
                         </button>
                         <span class="sdl-tooltip">${T.hq_tooltip}</span>
+                        ${isLargeDoc ? `<p id="sdl-hq-toast" class="sdl-hq-toast" hidden></p>` : ''}
                     </div>
 
+                    ${!isLargeDoc ? `
                     <div class="sdl-divider">${T.adv_opts}</div>
 
                     <div class="sdl-btn-container">
@@ -339,7 +384,7 @@ const Interface = {
                             <span class="sdl-badge beta">${T.vec_badge}</span>
                         </button>
                         <span class="sdl-tooltip">${T.vec_tooltip}</span>
-                    </div>
+                    </div>` : ''}
                 </div>
             `;
     }
@@ -349,22 +394,49 @@ const Interface = {
 
     const mainBtn = document.getElementById('sdl-action-btn');
     if (mainBtn) {
-      mainBtn.onclick = isEmbed ? executeHQScan : () => {
-        window.location.href = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&access_key=key-1`;
-      };
+      mainBtn.onclick = isEmbed
+        ? () => {
+          // Si es un documento grande, mostrar mini-advertencia no intrusiva
+          // antes de lanzar el escaneo para que el usuario sepa que tardará.
+          if (isLargeDoc) {
+            const toast = document.getElementById('sdl-hq-toast');
+            if (toast) {
+              toast.textContent = T.hq_long_warning || '⏱ This will take a long time. Please keep this tab open.';
+              toast.hidden = false;
+            }
+            // Pequeña pausa para que el usuario vea el aviso antes de que
+            // el overlay oculte el botón y empiece el escaneo.
+            setTimeout(executeHQScan, 1800);
+          } else {
+            executeHQScan();
+          }
+        }
+        : () => {
+          window.location.href = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&access_key=key-1`;
+        };
     }
+
+    // Función compartida para lanzar la descarga de PDF original
+    const launchBridgeDownload = async () => {
+      let targetUrl = AppState.cachedUrl;
+      if (!targetUrl) {
+        const slug = sanitizeFilename(docName).replace(/_/g, '-').toLowerCase();
+        targetUrl = `https://es.scribd.com/document/${docId}/${slug}`;
+      }
+      Utils.sendMessageAsync({ action: "open_external_downloader", docUrl: targetUrl, docName: docName });
+    };
 
     const bridgeBtn = document.getElementById('sdl-bridge-btn');
     if (bridgeBtn) {
-      bridgeBtn.onclick = async () => {
-        let targetUrl = AppState.cachedUrl;
-        if (!targetUrl) {
-          const slug = sanitizeFilename(docName).replace(/_/g, '-').toLowerCase();
-          targetUrl = `https://es.scribd.com/document/${docId}/${slug}`;
-        }
-        // Pasar el nombre del documento para que se use como nombre del archivo descargado
-        Utils.sendMessageAsync({ action: "open_external_downloader", docUrl: targetUrl, docName: docName });
-      };
+      // Solo existe cuando NO hay warning (documentos pequeños)
+      bridgeBtn.onclick = launchBridgeDownload;
+    }
+
+    // El botón del banner de advertencia dispara la misma lógica de descarga
+    // pero siempre existe (solo para documentos grandes).
+    const warningPdfBtn = document.getElementById('sdl-warning-pdf-btn');
+    if (warningPdfBtn) {
+      warningPdfBtn.onclick = launchBridgeDownload;
     }
 
     const closeBtn = overlay.querySelector('.sdl-close');

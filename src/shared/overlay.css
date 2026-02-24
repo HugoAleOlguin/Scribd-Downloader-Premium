@@ -246,3 +246,77 @@
     text-transform: uppercase;
     letter-spacing: 1px;
 }
+
+/* ── Banner de aviso para documentos grandes ─────────────────────────── */
+/* Se muestra cuando el documento supera el umbral de páginas definido   */
+/* en content.js (LARGE_DOC_THRESHOLD). Usa color ámbar para urgencia.  */
+.sdl-large-doc-warning {
+    background: rgba(255, 160, 0, 0.1) !important;
+    border: 1px solid rgba(255, 160, 0, 0.45) !important;
+    border-radius: 8px !important;
+    padding: 12px 14px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+    animation: sdl-warning-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes sdl-warning-pulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 160, 0, 0);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px rgba(255, 160, 0, 0.18);
+    }
+}
+
+.sdl-warning-text {
+    color: #ffd54f !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    line-height: 1.5 !important;
+    margin: 0 !important;
+}
+
+/* Botón de acción directa dentro del banner: más llamativo que el vector */
+.sdl-btn-warning-cta {
+    background: linear-gradient(135deg, #ff8f00, #e65100) !important;
+    box-shadow: 0 4px 14px rgba(230, 81, 0, 0.4) !important;
+    font-size: 12px !important;
+    padding: 10px 14px !important;
+}
+
+.sdl-btn-warning-cta:hover {
+    background: linear-gradient(135deg, #ffa000, #ef6c00) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(230, 81, 0, 0.5) !important;
+}
+
+/* Mini-aviso no intrusivo que aparece al hacer click en "Escaneo HQ"    */
+/* cuando el documento tiene muchas páginas. Texto ambar, sin caja.      */
+.sdl-hq-toast {
+    color: #ffd54f !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    line-height: 1.4 !important;
+    margin: 6px 0 0 0 !important;
+    padding: 0 !important;
+    background: none !important;
+    border: none !important;
+    animation: sdl-toast-in 0.3s ease;
+}
+
+@keyframes sdl-toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

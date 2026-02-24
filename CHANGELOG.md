@@ -1,21 +1,31 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.5.6] - 2026-02-23: **Large Document UX + Chunked PDF**
+
+### 🐛 Bug Fix
+- **Fix crítico — "invalid string length"**: Al descargar documentos con cientos de páginas, el motor V8 lanzaba `RangeError: Invalid string length` porque jsPDF acumulaba todas las páginas en un único string base64 gigante. Ahora el escaneo HQ se divide en **lotes de 100 páginas** (`PAGES_PER_CHUNK`), generando un archivo PDF por lote (ej. `doc_parte_1_de_11.pdf`). La memoria se libera entre lotes. Para documentos ≤ 100 páginas el comportamiento es idéntico al anterior (un solo archivo).
+
+### ✨ UX — Documentos Grandes (≥ 100 páginas)
+- **Banner de advertencia**: Se muestra un panel ámbar animado con un botón de acceso directo a "PDF Original" cuando se detecta un documento grande. Recomendado porque evita el proceso de escaneo HQ (que puede tardar horas).
+- **Simplificación del overlay**: Cuando el banner de advertencia está visible, el botón duplicado "PDF Original" de la sección "Opciones Avanzadas" se oculta automáticamente para limpiar la UI.
+- **Mini-aviso al iniciar HQ Scan**: Si el usuario elige igualmente el Escaneo HQ en un documento grande, aparece un texto no intrusivo debajo del botón (`⏱ Esto tardará mucho tiempo. Manteté esta pestaña abierta.`) antes de iniciar el proceso.
+- **Traducciones**: Nuevas claves `large_doc_warning` y `hq_long_warning` en ES e EN en `i18n.js`.
+
+---
+
 ## [2.5.5] - 2026-02-20: **Monorepo + Firefox Fix**
 
-### 🏗️ Estructura
+
+### Estructura
 - **Monorepo**: Reorganización completa del proyecto en `src/shared/`, `src/chrome/` y `src/firefox/`. Una única fuente de verdad para el código compartido.
 - **Build system**: Reemplazado el script `.ps1` por `build.bat` (doble clic, sin restricciones de ejecución). Genera `chrome/` y `firefox/` directamente en la raíz del proyecto.
 - **Cleanup**: Eliminados todos los archivos duplicados de la raíz (`manifest.json`, `background.js`, `content.js`, `overlay.css`, `popup.html`, `popup.js`, `icons/`, `libs/`, `manifest-firefox.json`, scripts legacy).
 
-### 🦊 Firefox
+### Firefox
 - **Fix crítico**: `captureVisibleTab` ahora usa `windowId` explícito (Firefox rechaza `null`).
 - **Fix zoom**: `document.body.style.zoom` no es estándar en Firefox. Reemplazado por `transform: scale()` con detección automática de navegador.
 - **Fix CORS**: `validate_download` ahora maneja la ausencia de `content-length` (Firefox lo omite por CORS).
 
-### 📖 Documentación
-- **README**: Guía de instalación completa para Chrome y Firefox, troubleshooting, FAQ y structure para desarrolladores.
-
----
 
 ## [2.4.3] - 2026-02-20: **Filename Fix & jsPDF Loader**
 - **UX Fix**: La descarga de PDF externo (vía "PDF Original") ahora guarda el archivo con el nombre real del documento en lugar del nombre genérico `Scribd_Document_Premium.pdf`. El nombre fluye desde el overlay → background → chrome.downloads.

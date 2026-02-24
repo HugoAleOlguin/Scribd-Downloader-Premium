@@ -34,6 +34,10 @@ const I18n = {
             vec_btn: "PDF ORIGINAL",
             vec_badge: "AUTOMÁTICO",
             vec_tooltip: "Intenta descargar el archivo PDF original desde servidores externos. Más rápido, pero puede fallar si el servidor no lo expone. Si falla, usa 'Escaneo HQ'.",
+            // Aviso para documentos con muchas páginas: recomienda PDF Original
+            large_doc_warning: "⚠️ Documento grande detectado ({pages} páginas). El Escaneo HQ generará múltiples archivos y tardará horas. Se recomienda 100% usar \"PDF Original\".",
+            // Mini-aviso que aparece al hacer click en Escaneo HQ con doc grande
+            hq_long_warning: "⏱ Esto tardará mucho tiempo. Mantené esta pestaña abierta.",
             // Estados dinámicos del botón durante el proceso
             states: {
                 loading: "Preparando escaneo...",
@@ -94,6 +98,10 @@ const I18n = {
             vec_btn: "ORIGINAL PDF",
             vec_badge: "AUTOMATIC",
             vec_tooltip: "Attempts to download the original PDF file from external servers. Faster, but may fail if the server doesn't expose it. If it fails, use 'Smart Scan (HQ)'.",
+            // Warning for documents with many pages: recommends Original PDF
+            large_doc_warning: "⚠️ Large document detected ({pages} pages). HQ Scan will generate multiple files and take hours. 100% recommended: use \"Original PDF\".",
+            // Mini-warning shown when clicking HQ Scan on a large document
+            hq_long_warning: "⏱ This will take a long time. Please keep this tab open.",
             // Dynamic button states during the process
             states: {
                 loading: "Preparing scan...",
