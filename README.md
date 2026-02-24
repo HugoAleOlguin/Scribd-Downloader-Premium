@@ -12,7 +12,7 @@ Sin cuentas externas. Sin servidores de terceros. 100% local.
 
 <br/>
 
-[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.5.5-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.6)
+[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.5.6-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.6)
 
 </div>
 
