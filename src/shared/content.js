@@ -93,6 +93,7 @@ const PDFHandler = {
     doc.deletePage(1);
     return doc;
   },
+  // Método legado (no se usa ya en el flujo principal pero se conserva por compatibilidad)
   addPage: (doc, imgData, rect) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -120,8 +121,47 @@ const PDFHandler = {
       img.onerror = () => reject(new Error("Image Load Error"));
       img.src = imgData;
     });
+  },
+  // Recibe el data-URL ya renderizado por html2canvas (recortado al elemento).
+  // No necesita img.onload porque el data-URL ya está listo.
+  addPageFromCanvas: (doc, dataUrl, rect) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const A4_W = 595.28; const A4_H = 841.89;
+        doc.addPage([A4_W, A4_H]);
+        const sw = rect.width; const sh = rect.height;
+        const scale = (A4_W - 20) / sw; const printH = sh * scale; const printW = A4_W - 20;
+        if (printH <= A4_H) {
+          const posY = (A4_H - printH) / 2;
+          doc.addImage(dataUrl, 'PNG', 10, posY, printW, printH, undefined, 'SLOW');
+        } else {
+          const scaleH = (A4_H - 20) / sh; const printW_H = sw * scaleH; const posX = (A4_W - printW_H) / 2;
+          doc.addImage(dataUrl, 'PNG', posX, 10, printW_H, A4_H - 20, undefined, 'SLOW');
+        }
+        resolve();
+      } catch (err) { reject(err); }
+    });
   }
 };
+
+// Captura un elemento DOM como data URL usando html2canvas.
+// Es más confiable que captureVisibleTab: no depende del Service Worker
+// ni de que la pestaña esté activa en el momento exacto de la captura.
+async function captureElementWithHtml2Canvas(element) {
+  if (typeof html2canvas !== 'function') {
+    throw new Error('html2canvas no disponible. Recarga la extensión (F5).');
+  }
+  const canvas = await html2canvas(element, {
+    useCORS: true,
+    allowTaint: true,
+    scale: window.devicePixelRatio || 1,
+    backgroundColor: '#ffffff',
+    logging: false,
+    // Excluimos el overlay para que no aparezca en la captura del documento
+    ignoreElements: (el) => el.id === 'sdl-overlay' || el.id === 'spd-clean-style'
+  });
+  return canvas.toDataURL('image/png');
+}
 
 async function executeHQScan() {
   if (AppState.isProcessing) return;
@@ -193,25 +233,22 @@ async function executeHQScan() {
         applyZoom(targetZoom);
         page.scrollIntoView({ behavior: 'instant', block: 'center' });
 
+        // Esperamos a que los contenidos lazy de la página terminen de renderizar
         await new Promise(r => setTimeout(r, 1200));
-        const rect = page.getBoundingClientRect();
 
-        const overlay = document.getElementById('sdl-overlay');
-        if (overlay) overlay.style.display = 'none';
-        await new Promise(r => setTimeout(r, 200));
-
-        const res = await Utils.sendMessageAsync({ action: "capture_tab" });
-        if (overlay) overlay.style.display = 'flex';
-
-        if (res.success && res.image) {
-          await PDFHandler.addPage(pdf, res.image, rect);
-          // Mostrar progreso global (no local al chunk)
-          const pct = Math.round(((i + 1) / total) * 100);
-          Interface.updateProgress(pct, `${i + 1}/${total}${chunkLabel}`);
-        } else if (!res.success) {
-          // Fallo silencioso: se salta la página y se continúa
-          console.warn('[SPD] Captura fallida en página', i + 1, res);
+        try {
+          // Capturamos el elemento directamente con html2canvas: no necesita
+          // que la pestaña esté activa ni que el Service Worker esté despierto.
+          const imgData = await captureElementWithHtml2Canvas(page);
+          const rect = { x: 0, y: 0, width: page.offsetWidth, height: page.offsetHeight };
+          await PDFHandler.addPageFromCanvas(pdf, imgData, rect);
+        } catch (captureErr) {
+          // Fallo en una página individual: se registra y se continúa
+          console.warn('[SPD] html2canvas fallido en página', i + 1, captureErr.message);
         }
+
+        const pct = Math.round(((i + 1) / total) * 100);
+        Interface.updateProgress(pct, `${i + 1}/${total}${chunkLabel}`);
       }
 
       // Guardar el lote y dar tiempo al GC antes de iniciar el siguiente
