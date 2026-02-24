@@ -5,14 +5,14 @@
 **Descarga y respalda documentos de Scribd directamente desde tu navegador.**  
 Sin cuentas externas. Sin servidores de terceros. 100% local.
 
-[![Versión](https://img.shields.io/badge/versión-2.5.5-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
-[![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
-[![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
+[![Versión](https://img.shields.io/badge/versión-2.5.5-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.5)
+[![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.5)
+[![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.5)
 [![Licencia](https://img.shields.io/badge/licencia-MIT-blue?style=flat-square)](LICENSE.md)
 
 <br/>
 
-[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.5.5-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/)
+[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.5.5-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.5)
 
 </div>
 
@@ -27,7 +27,7 @@ Agrega un **panel flotante** en cada documento de Scribd con dos modos de descar
 | 🖼️ **Escaneo HQ** | Captura cada página y genera un PDF | PDF imagen · Alta compatibilidad |
 | 📄 **PDF Original** | Busca y descarga el PDF vectorial del servidor | PDF con texto seleccionable |
 
-> ⚠️ Solo funciona con documentos que ya puedes leer en tu cuenta de Scribd.
+> ⚠️ Solo funciona con documentos publicos.
 
 ---
 
@@ -35,7 +35,7 @@ Agrega un **panel flotante** en cada documento de Scribd con dos modos de descar
 
 ### 1 — Descarga el proyecto
 
-Descarga el ZIP y descomprímelo en una carpeta permanente, por ejemplo:
+[Descarga el ZIP](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.5) y descomprímelo en una carpeta permanente, por ejemplo:
 ```
 C:\Extensiones\scribd-downloader\
 ```
@@ -149,25 +149,6 @@ También puedes correrlo desde consola:
 ```bat
 build.bat
 ```
-
----
-
-## ❓ Preguntas frecuentes
-
-**¿Por qué no está en la Web Store?**  
-Google y Mozilla no permiten extensiones que automaticen descargas de plataformas de contenido. Se distribuye manualmente.
-
-**¿Es seguro ejecutar el `.ps1`?**  
-Sí. Es un script de PowerShell de ~30 líneas que solo copia archivos de `src/` a `chrome/` y `firefox/`. Puedes abrirlo con el Bloc de Notas y verificarlo antes de ejecutarlo.
-
-**¿Mis datos están seguros?**  
-Todo el procesamiento ocurre en tu máquina local. No se envían datos a ningún servidor externo.
-
-**¿Funciona en móvil?**  
-No. Las extensiones no están disponibles en Chrome para Android ni en Firefox para iOS.
-
-**¿Cómo actualizo?**  
-Descarga el ZIP nuevo, reemplaza los archivos, y vuelve a ejecutar `build.ps1`. Luego recarga la extensión en el navegador.
 
 ---
 
