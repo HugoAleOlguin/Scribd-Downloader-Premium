@@ -194,8 +194,28 @@ async function executeHQScan() {
     }
   };
 
+  // ─── SW Keepalive ─────────────────────────────────────────────────────────────
+  // En Chrome MV3, el Service Worker se suspende ~30s después de quedar inactivo.
+  // Abrimos un puerto persistente durante el scan para mantenerlo despierto,
+  // evitando que los mensajes capture_tab lleguen a un SW dormido y fallen.
+  function openSWKeepalive() {
+    try {
+      const port = chrome.runtime.connect({ name: 'spd-keepalive' });
+      // Heartbeat cada 20s para mantener el SW activo durante el scan
+      const interval = setInterval(() => port.postMessage('ping'), 20000);
+      port.onDisconnect.addListener(() => clearInterval(interval));
+      return port;
+    } catch (e) {
+      // Firefox no necesita keepalive (tiene background page persistente)
+      return null;
+    }
+  }
+
   Interface.updateState('loading', T.loading);
   const originalOverflow = document.body.style.overflow;
+  // Abrimos el puerto keepalive antes de empezar el scan.
+  // Esto mantiene el Service Worker de Chrome despierto durante todo el proceso.
+  const keepalivePort = openSWKeepalive();
 
   try {
     const styleEl = document.createElement('style');
@@ -227,24 +247,34 @@ async function executeHQScan() {
 
       for (let i = chunkStart; i < chunkEnd; i++) {
         const page = pages[i];
-        const viewportH = window.innerHeight; const pageH = page.offsetHeight; const pageW = page.offsetWidth; const viewportW = window.innerWidth;
-        let zoomH = viewportH / pageH; let zoomW = viewportW / pageW;
-        let targetZoom = Math.min(zoomH, zoomW, 1) * 0.98;
-        applyZoom(targetZoom);
+
+        // 1. Reseteamos el zoom ANTES de calcular posiciones y capturar.
+        //    El zoom alteraba getBoundingClientRect y degradaba la captura.
+        resetZoom();
         page.scrollIntoView({ behavior: 'instant', block: 'center' });
 
-        // Esperamos a que los contenidos lazy de la página terminen de renderizar
-        await new Promise(r => setTimeout(r, 1200));
+        // 2. Esperamos a que lazy-images y fuentes terminen de pintar
+        await new Promise(r => setTimeout(r, 1000));
 
-        try {
-          // Capturamos el elemento directamente con html2canvas: no necesita
-          // que la pestaña esté activa ni que el Service Worker esté despierto.
-          const imgData = await captureElementWithHtml2Canvas(page);
-          const rect = { x: 0, y: 0, width: page.offsetWidth, height: page.offsetHeight };
-          await PDFHandler.addPageFromCanvas(pdf, imgData, rect);
-        } catch (captureErr) {
-          // Fallo en una página individual: se registra y se continúa
-          console.warn('[SPD] html2canvas fallido en página', i + 1, captureErr.message);
+        // 3. Tomamos las coordenadas exactas del elemento en viewport
+        const rect = page.getBoundingClientRect();
+
+        // 4. Ocultamos el overlay para que no aparezca en la screenshot
+        const overlay = document.getElementById('sdl-overlay');
+        if (overlay) overlay.style.display = 'none';
+        await new Promise(r => setTimeout(r, 150));
+
+        // 5. Capturamos la pestaña desde el background (screenshot real del browser)
+        const res = await Utils.sendMessageAsync({ action: 'capture_tab' });
+
+        // 6. Restauramos el overlay inmediatamente tras capturar
+        if (overlay) overlay.style.display = 'flex';
+
+        if (res.success && res.image) {
+          await PDFHandler.addPage(pdf, res.image, rect);
+        } else {
+          // Si la captura falla, registramos y continuamos (no abortamos el scan)
+          console.warn('[SPD] capture_tab fallido en página', i + 1, res.error || 'sin respuesta');
         }
 
         const pct = Math.round(((i + 1) / total) * 100);
@@ -260,7 +290,8 @@ async function executeHQScan() {
 
     Interface.updateState('success', T.success);
 
-    // Cleanup
+    // Cleanup: cerramos el keepalive y restauramos el estado de la página
+    keepalivePort?.disconnect();
     resetZoom();
     document.body.style.overflow = originalOverflow || '';
     document.getElementById('spd-clean-style')?.remove();
@@ -268,6 +299,7 @@ async function executeHQScan() {
 
   } catch (e) {
     console.error(e);
+    keepalivePort?.disconnect();
     resetZoom();
     document.body.style.overflow = originalOverflow || '';
     document.getElementById('spd-clean-style')?.remove();

@@ -91,6 +91,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
+// ─── Puerto keepalive (chrome.runtime.onConnect) ──────────────────────────────
+// El content script abre un puerto 'spd-keepalive' al iniciar el scan HQ.
+// Mientras el puerto esté conectado el Service Worker no se suspende.
+// No es necesario procesar los mensajes 'ping'; basta con mantener la referencia.
+chrome.runtime.onConnect.addListener((port) => {
+    if (port.name === 'spd-keepalive') {
+        // La conexión activa mantiene el SW vivo; nada más que hacer aquí.
+        port.onDisconnect.addListener(() => { /* scan terminado, SW puede dormir */ });
+    }
+});
+
 // ─── Listener de navegación: inyecta lógica de automatización ─────────────────
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
     if (changeInfo.status !== 'complete') return;
