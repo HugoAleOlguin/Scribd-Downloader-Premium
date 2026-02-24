@@ -39,6 +39,7 @@
             "all_frames": false,
             "js": [
                 "libs/shim.js",
+                "libs/html2canvas.min.js",
                 "libs/jspdf.umd.min.js",
                 "libs/i18n.js",
                 "content.js"
@@ -52,6 +53,7 @@
     "web_accessible_resources": [
         {
             "resources": [
+                "libs/html2canvas.min.js",
                 "libs/jspdf.umd.min.js",
                 "libs/shim.js",
                 "libs/i18n.js",
