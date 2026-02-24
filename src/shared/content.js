@@ -363,6 +363,11 @@ const Interface = {
                     <div class="sdl-row"><span class="sdl-label">${T.file}</span><span class="sdl-value sdl-truncate" title="${docName}">${docName}</span></div>
         `;
 
+    // Declaradas antes del if/else: el handler de mainBtn.onclick las usa
+    // desde fuera del bloque, por eso necesitan scope de función, no de bloque.
+    const LARGE_DOC_THRESHOLD = 100;
+    let isLargeDoc = false;
+
     if (!isEmbed) {
       contentHtml += `
                 </div>
@@ -380,8 +385,7 @@ const Interface = {
 
       // Umbral a partir del cual advertimos al usuario: documentos grandes
       // tardan horas en el modo HQ y generan múltiples archivos.
-      const LARGE_DOC_THRESHOLD = 100;
-      const isLargeDoc = pageCount >= LARGE_DOC_THRESHOLD;
+      isLargeDoc = pageCount >= LARGE_DOC_THRESHOLD;
 
       // Construir el mensaje interpolando el número real de páginas
       const warningText = isLargeDoc
