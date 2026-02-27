@@ -5,14 +5,14 @@
 **Descarga y respalda documentos de Scribd directamente desde tu navegador.**  
 Sin cuentas externas. Sin servidores de terceros. 100% local.
 
-[![Versión](https://img.shields.io/badge/versión-2.5.6-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.6)
-[![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.6)
-[![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.6)
+[![Versión](https://img.shields.io/badge/versión-2.5.6-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
+[![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
+[![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
 [![Licencia](https://img.shields.io/badge/licencia-MIT-blue?style=flat-square)](LICENSE.md)
 
 <br/>
 
-[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.5.6-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.6)
+[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.7.0-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
 
 </div>
 
@@ -35,7 +35,7 @@ Agrega un **panel flotante** en cada documento de Scribd con dos modos de descar
 
 ### 1 — Descarga el proyecto
 
-[Descarga el ZIP](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.5.6) y descomprímelo en una carpeta permanente, por ejemplo:
+[Descarga el ZIP](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0) y descomprímelo en una carpeta permanente, por ejemplo:
 ```
 C:\Extensiones\scribd-downloader\
 ```
