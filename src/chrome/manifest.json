@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Scribd Premium Downloader",
-    "version": "2.5.6",
+    "version": "2.7.0",
     "description": "Professional suite for managing, backing up, and downloading Scribd documents. Native support for Original PDF and HQ Scan.",
     "permissions": [
         "activeTab",

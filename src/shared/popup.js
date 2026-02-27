@@ -1,7 +1,7 @@
 /**
  * Scribd Premium Downloader
  * Popup Logic with i18n
- * @version 2.5.6
+ * @version 2.7.0
  */
 
 // I18n is loaded from libs/i18n.js

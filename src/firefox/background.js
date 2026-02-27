@@ -1,7 +1,7 @@
 /**
  * Scribd Premium Downloader
  * Background - Mozilla Firefox
- * @version 2.5.0
+ * @version 2.7.0
  *
  * Usa background.scripts (no service_worker).
  * I18n ya está cargado porque en manifest.json aparece antes que background.js:

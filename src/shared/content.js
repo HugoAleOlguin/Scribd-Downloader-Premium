@@ -1,7 +1,7 @@
 /**
  * Scribd Premium Downloader
  * Content Script with i18n
- * @version 2.4.0
+ * @version 2.7.0
  */
 
 // I18n loaded from libs/i18n.js
@@ -172,26 +172,15 @@ async function executeHQScan() {
   const I18nSafe = window.I18n || { es: { overlay: { states: FallbackStates } } };
   const T = (I18nSafe[AppState.language]?.overlay?.states) || I18nSafe.es?.overlay?.states || FallbackStates;
 
-  // Utilidad de zoom cross-browser: Chrome soporta `zoom`, Firefox requiere `transform:scale`
-  const isFirefox = navigator.userAgent.includes('Firefox');
+  // Utilidad de zoom cross-browser: Chrome y Firefox 126+ soportan CSS `zoom`.
+  // NOTA: transform:scale fue descartado porque es visual-only (no genera reflow),
+  // por lo que scrollIntoView seguía usando coordenadas sin escalar y
+  // captureVisibleTab no capturaba el contenido fuera del viewport original.
   const applyZoom = (level) => {
-    if (isFirefox) {
-      // Firefox: usamos transform en el wrapper principal del documento
-      const scroller = document.querySelector('.document_scroller') || document.body;
-      scroller.style.transformOrigin = 'top left';
-      scroller.style.transform = `scale(${level})`;
-    } else {
-      document.body.style.zoom = level;
-    }
+    document.documentElement.style.zoom = level;
   };
   const resetZoom = () => {
-    if (isFirefox) {
-      const scroller = document.querySelector('.document_scroller') || document.body;
-      scroller.style.transform = '';
-      scroller.style.transformOrigin = '';
-    } else {
-      document.body.style.zoom = '';
-    }
+    document.documentElement.style.zoom = '';
   };
 
   // ─── SW Keepalive ─────────────────────────────────────────────────────────────
@@ -237,6 +226,18 @@ async function executeHQScan() {
     const totalChunks = Math.ceil(total / PAGES_PER_CHUNK);
     const needsChunking = totalChunks > 1;
 
+    // Encontramos el contenedor de scroll de las páginas una sola vez.
+    // overflow:hidden no impide el scroll programático (scrollTop sigue funcionando).
+    const scrollContainer = (() => {
+      let node = pages[0]?.parentElement;
+      while (node && node !== document.documentElement) {
+        const ov = getComputedStyle(node).overflow + getComputedStyle(node).overflowY;
+        if (/(hidden|scroll|auto)/.test(ov)) return node;
+        node = node.parentElement;
+      }
+      return document.scrollingElement || document.documentElement;
+    })();
+
     for (let chunk = 0; chunk < totalChunks; chunk++) {
       const chunkStart = chunk * PAGES_PER_CHUNK;
       const chunkEnd = Math.min(chunkStart + PAGES_PER_CHUNK, total);
@@ -248,40 +249,96 @@ async function executeHQScan() {
       for (let i = chunkStart; i < chunkEnd; i++) {
         const page = pages[i];
 
-        // 1. Reseteamos el zoom ANTES de calcular posiciones y capturar.
-        //    El zoom alteraba getBoundingClientRect y degradaba la captura.
+        // 1. Capturamos siempre al 100% de zoom, sin reducir la resolución.
+        //    Para páginas más altas que el viewport usamos strip-stitch:
+        //    capturamos el contenido en franjas verticales y las pegamos en
+        //    un canvas de alta resolución (pageW*dpr × pageH*dpr píxeles).
         resetZoom();
-        page.scrollIntoView({ behavior: 'instant', block: 'center' });
+        page.scrollIntoView({ behavior: 'instant', block: 'start' });
+        await new Promise(r => setTimeout(r, 900));
 
-        // 2. Esperamos a que lazy-images y fuentes terminen de pintar
-        await new Promise(r => setTimeout(r, 1000));
+        const dpr = window.devicePixelRatio || 1;
+        const vh = window.innerHeight;
 
-        // 3. Tomamos las coordenadas exactas del elemento en viewport
-        const rect = page.getBoundingClientRect();
+        // Dimensiones de la página a zoom 100%.
+        const firstRect = page.getBoundingClientRect();
+        const pageW = firstRect.width;
+        const pageH = firstRect.height;
 
-        // 4. Ocultamos el overlay para que no aparezca en la screenshot
+        // Canvas destino: resolución física completa (CSS px × DPR).
+        const fullCanvas = document.createElement('canvas');
+        fullCanvas.width = Math.round(pageW * dpr);
+        fullCanvas.height = Math.round(pageH * dpr);
+        const ctx = fullCanvas.getContext('2d');
+
+        // 2. Ocultamos el overlay antes del primer screenshot.
         const overlay = document.getElementById('sdl-overlay');
         if (overlay) overlay.style.display = 'none';
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise(r => setTimeout(r, 100));
 
-        // 5. Capturamos la pestaña desde el background (screenshot real del browser)
-        const res = await Utils.sendMessageAsync({ action: 'capture_tab' });
+        // 3. Stitching: recorremos la página en tiras verticales.
+        //    dstY se deriva de la posición DOM real (-curRect.top) en cada iteración,
+        //    NO de capturedH acumulado. Esto elimina el drift de punto flotante que
+        //    causaba la costura visible entre strips al hacer scrollContainer.scrollTop.
+        let capturedH = 0;
+        while (capturedH < pageH) {
+          const curRect = page.getBoundingClientRect();
+          // Cuánto de la página ya quedó por encima del viewport (scroll real).
+          const scrolledPast = Math.max(0, -curRect.top);
+          const visibleTop = Math.max(0, curRect.top);
+          const visibleBottom = Math.min(vh, curRect.bottom);
+          const stripH = visibleBottom - visibleTop;
 
-        // 6. Restauramos el overlay inmediatamente tras capturar
+          if (stripH <= 0) break;
+
+          const res = await Utils.sendMessageAsync({ action: 'capture_tab' });
+
+          if (res.success && res.image) {
+            await new Promise((resolve) => {
+              const img = new Image();
+              img.onload = () => {
+                // Origen en el screenshot: la franja visible de esta página.
+                const srcX = Math.round(curRect.left * dpr);
+                const srcY = Math.round(visibleTop * dpr);
+                const srcW = Math.round(pageW * dpr);
+                const srcH = Math.round(stripH * dpr);
+                // Destino derivado de la posición DOM real, no acumulado.
+                // Así cualquier ±1px de error de scroll no genera costura.
+                const dstY = Math.round(scrolledPast * dpr);
+                ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, dstY, srcW, srcH);
+                resolve();
+              };
+              img.onerror = resolve;
+              img.src = res.image;
+            });
+          } else {
+            console.warn('[SPD] capture_tab fallido en página', i + 1, res.error || 'sin respuesta');
+          }
+
+          // Actualizamos capturedH desde la posición DOM real para la condición de salida.
+          capturedH = scrolledPast + stripH;
+
+          // Scrolleamos al siguiente strip si quedan píxeles sin capturar.
+          if (capturedH < pageH) {
+            scrollContainer.scrollTop += Math.round(stripH);
+            await new Promise(r => setTimeout(r, 350));
+          }
+        }
+
+        // 4. Restauramos el overlay.
         if (overlay) overlay.style.display = 'flex';
 
-        if (res.success && res.image) {
-          await PDFHandler.addPage(pdf, res.image, rect);
-        } else {
-          // Si la captura falla, registramos y continuamos (no abortamos el scan)
-          console.warn('[SPD] capture_tab fallido en página', i + 1, res.error || 'sin respuesta');
-        }
+        // 5. Añadimos la página completa (alta resolución) al PDF.
+        //    addPageFromCanvas usa las dimensiones CSS para calcular el fit en A4;
+        //    el canvas con pixeles físicos (dpr×) le da la densidad de imagen al PDF.
+        const dataUrl = fullCanvas.toDataURL('image/png');
+        await PDFHandler.addPageFromCanvas(pdf, dataUrl, { width: pageW, height: pageH });
 
         const pct = Math.round(((i + 1) / total) * 100);
         Interface.updateProgress(pct, `${i + 1}/${total}${chunkLabel}`);
       }
 
-      // Guardar el lote y dar tiempo al GC antes de iniciar el siguiente
+      // Guardar el lote y dar tiempo al GC antes de iniciar el siguiente.
       Interface.updateState('saving', T.saving + chunkLabel);
       const partSuffix = needsChunking ? `_parte_${chunk + 1}_de_${totalChunks}` : '';
       pdf.save(`${fname}${partSuffix}.pdf`);

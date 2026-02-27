@@ -1,5 +1,16 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.7.0] - 2026-02-27: **Firefox HQ Scan Fix**
+
+### 🐛 Bug Fix
+- **Fix crítico — imágenes recortadas en Firefox**: El zoom implementado con `transform:scale` era visual-only y no generaba un reflow del DOM. Por esto, `scrollIntoView` seguía usando coordenadas pre-escala y `captureVisibleTab` capturaba el mismo viewport recortado de siempre, sin importar el nivel de zoom aplicado. Reemplazado por `documentElement.style.zoom` (soportado desde Firefox 126, abril 2024), que sí fuerza un reflow completo del layout, equivalente al `body.style.zoom` de Chrome. Ahora ambos navegadores usan el mismo mecanismo.
+- **Unificación de la lógica de zoom**: Eliminada la bifurcación `isFirefox`. `applyZoom` y `resetZoom` ahora son idénticos para Chrome y Firefox.
+
+### 🔖 Versión
+- Bump de versión a `2.7.0` en todos los archivos: manifiestos, headers JSDoc, popup UI.
+
+---
+
 ## [2.5.6] - 2026-02-23: **Large Document UX + Chunked PDF**
 
 ### 🐛 Bug Fix

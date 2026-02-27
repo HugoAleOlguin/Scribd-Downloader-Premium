@@ -1,7 +1,7 @@
 /**
  * Scribd Premium Downloader
  * Background - Chrome / Chromium / Edge / Brave
- * @version 2.5.0
+ * @version 2.7.0
  *
  * Usa service_worker (Manifest V3 de Chrome).
  * I18n se carga desde libs/i18n.js mediante "importScripts".
