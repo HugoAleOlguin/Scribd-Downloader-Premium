@@ -27,75 +27,72 @@ const StateManager = {
 };
 
 // ─── Handlers de mensajes desde content.js ────────────────────────────────────
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+// Firefox soporta retornar una Promise desde onMessage.addListener.
+// El valor resuelto de la Promise se entrega automáticamente al callback de
+// chrome.runtime.sendMessage en el content script.
+// NO se usa sendResponse ni return true — ese patrón es de Chrome MV3.
+browser.runtime.onMessage.addListener(async (request, sender) => {
 
-    // Firefox requiere windowId explícito — null no funciona
     if (request.action === "capture_tab") {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            const windowId = tabs[0]?.windowId;
-            if (!windowId) {
-                sendResponse({ success: false, error: 'No active window found' });
-                return;
-            }
-            chrome.tabs.captureVisibleTab(windowId, { format: "png" }, (dataUrl) => {
-                if (chrome.runtime.lastError) {
-                    sendResponse({ success: false, error: chrome.runtime.lastError.message });
-                } else {
-                    sendResponse({ success: true, image: dataUrl });
-                }
-            });
-        });
-        return true;
+        // browser.tabs.captureVisibleTab requiere windowId explícito en Firefox.
+        const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+        const windowId = tabs[0]?.windowId;
+        if (!windowId) return { success: false, error: 'No active window found' };
+        try {
+            const dataUrl = await browser.tabs.captureVisibleTab(windowId, { format: 'png' });
+            return { success: true, image: dataUrl };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
     }
 
     if (request.action === "fetch_image") {
-        fetch(request.url)
-            .then(r => r.blob())
-            .then(blob => {
+        try {
+            const r = await fetch(request.url);
+            const blob = await r.blob();
+            const dataUrl = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onloadend = () => sendResponse({ success: true, data: reader.result });
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
                 reader.readAsDataURL(blob);
-            })
-            .catch(e => sendResponse({ success: false, error: e.message }));
-        return true;
+            });
+            return { success: true, data: dataUrl };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
     }
 
     if (request.action === "validate_download") {
-        fetch(request.url, { method: 'HEAD' })
-            .then(response => {
-                const type = response.headers.get('content-type');
-                const length = response.headers.get('content-length');
-                const size = length ? parseInt(length) : null;
-
-                // Firefox puede omitir content-length por CORS — si falta, confiamos en el status 200
-                const isValidType = type && (type.includes('pdf') || type.includes('octet') || type.includes('force-download'));
-                const isValid = response.ok && (size === null || size > 2048);
-
-                if (isValid) {
-                    const rawName = request.docName || 'Scribd_Document_Premium';
-                    const safeFilename = rawName.replace(/[^a-z0-9\s\-_\u00C0-\u00FF]/gi, '').trim().replace(/\s+/g, '_') || 'Scribd_Document_Premium';
-                    chrome.downloads.download({ url: request.url, filename: `${safeFilename}.pdf`, saveAs: true });
-                    sendResponse({ valid: true });
-                } else {
-                    sendResponse({ valid: false, reason: `type=${type}, size=${size}` });
-                }
-            })
-            .catch(err => sendResponse({ valid: false, reason: `Network Error: ${err.message}` }));
-        return true;
+        try {
+            const response = await fetch(request.url, { method: 'HEAD' });
+            const type = response.headers.get('content-type');
+            const length = response.headers.get('content-length');
+            const size = length ? parseInt(length) : null;
+            // Firefox puede omitir content-length por CORS — si falta, confiamos en status 200.
+            const isValid = response.ok && (size === null || size > 2048);
+            if (isValid) {
+                const rawName = request.docName || 'Scribd_Document_Premium';
+                const safeFilename = rawName.replace(/[^a-z0-9\s\-_\u00C0-\u00FF]/gi, '').trim().replace(/\s+/g, '_') || 'Scribd_Document_Premium';
+                await browser.downloads.download({ url: request.url, filename: `${safeFilename}.pdf`, saveAs: true });
+                return { valid: true };
+            } else {
+                return { valid: false, reason: `type=${type}, size=${size}` };
+            }
+        } catch (e) {
+            return { valid: false, reason: `Network Error: ${e.message}` };
+        }
     }
 
     if (request.action === "open_external_downloader") {
         const targetUrl = "https://scribd.vdownloaders.com/";
-        chrome.tabs.create({ url: targetUrl }, async (newTab) => {
-            await StateManager.set({
-                docUrl: request.docUrl,
-                docName: request.docName || '',
-                active: true,
-                tabId: newTab.id
-            });
-            sendResponse({ success: true });
+        const newTab = await browser.tabs.create({ url: targetUrl });
+        await StateManager.set({
+            docUrl: request.docUrl,
+            docName: request.docName || '',
+            active: true,
+            tabId: newTab.id
         });
-        return true;
+        return { success: true };
     }
 });
 
