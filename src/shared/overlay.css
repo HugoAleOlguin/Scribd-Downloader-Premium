@@ -1,35 +1,37 @@
-/* overlay.css - v2.5.6 (Premium Rebrand) */
+/* overlay.css — Scribd Premium Downloader v2.8.0 */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 #sdl-overlay {
     position: fixed !important;
-    bottom: 30px !important;
-    right: 30px !important;
+    bottom: 24px !important;
+    right: 24px !important;
     z-index: 2147483647 !important;
     font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
     pointer-events: none;
-    transition: opacity 0.3s ease;
 }
 
+/* ── Card principal ────────────────────────────────────────────────────── */
 .sdl-glass {
     pointer-events: auto;
-    background: rgba(18, 18, 20, 0.95) !important;
-    backdrop-filter: blur(24px) !important;
-    -webkit-backdrop-filter: blur(24px) !important;
+    background: rgba(16, 16, 20, 0.97) !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 12px !important;
-    box-shadow: 0 32px 64px -12px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
-    padding: 20px !important;
-    width: 340px !important;
+    border-radius: 14px !important;
+    box-shadow:
+        0 24px 56px -8px rgba(0, 0, 0, 0.75),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+    padding: 18px !important;
+    width: 330px !important;
     display: flex !important;
     flex-direction: column !important;
-    gap: 16px !important;
-    animation: sdl-entry 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    gap: 14px !important;
+    animation: sdl-entry 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes sdl-entry {
     from {
-        transform: translateY(20px) scale(0.95);
+        transform: translateY(18px) scale(0.97);
         opacity: 0;
     }
 
@@ -39,187 +41,263 @@
     }
 }
 
-/* Header */
+/* ── Header ────────────────────────────────────────────────────────────── */
 .sdl-header {
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
     padding-bottom: 12px !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
 }
 
 .sdl-brand {
     font-weight: 700 !important;
-    font-size: 15px !important;
-    color: #fff !important;
-    letter-spacing: -0.01em !important;
+    font-size: 14px !important;
+    color: #f4f4f5 !important;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
+    letter-spacing: -0.01em;
 }
 
 .sdl-close {
     background: transparent !important;
     border: none !important;
-    color: rgba(255, 255, 255, 0.4) !important;
+    color: rgba(255, 255, 255, 0.3) !important;
     font-size: 20px !important;
-    padding: 4px !important;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer !important;
-    transition: color 0.2s !important;
-    line-height: 0 !important;
+    transition: background 0.15s, color 0.15s !important;
+    border-radius: 6px !important;
+    line-height: 1 !important;
 }
 
 .sdl-close:hover {
-    color: #ff5252 !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: rgba(255, 255, 255, 0.75) !important;
 }
 
-/* Info Grid */
+/* ── Info Grid ─────────────────────────────────────────────────────────── */
 .sdl-info-grid {
     display: flex !important;
     flex-direction: column !important;
-    gap: 10px !important;
-    background: rgba(255, 255, 255, 0.04) !important;
-    padding: 12px !important;
-    border-radius: 8px !important;
+    gap: 7px !important;
+    background: rgba(255, 255, 255, 0.035) !important;
+    padding: 10px 12px !important;
+    border-radius: 9px !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
 }
 
 .sdl-row {
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
 }
 
 .sdl-label {
-    color: rgba(255, 255, 255, 0.5) !important;
+    color: rgba(255, 255, 255, 0.38) !important;
     font-weight: 500 !important;
 }
 
 .sdl-value {
-    color: #ececec !important;
+    color: #d4d4d8 !important;
     font-weight: 600 !important;
     font-variant-numeric: tabular-nums !important;
 }
 
 .sdl-truncate {
-    max-width: 180px !important;
+    max-width: 170px !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     text-align: right !important;
 }
 
-/* Progress */
+/* ── Progress bar ──────────────────────────────────────────────────────── */
 .sdl-progress-track {
-    background: rgba(255, 255, 255, 0.1) !important;
-    height: 4px !important;
+    background: rgba(255, 255, 255, 0.07) !important;
+    height: 3px !important;
     border-radius: 2px !important;
     width: 100% !important;
     overflow: hidden !important;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
 }
 
 #sdl-progress-fill {
-    background: #00e676 !important;
+    background: linear-gradient(90deg, #34d399, #059669) !important;
     height: 100% !important;
     width: 0%;
-    transition: width 0.3s ease !important;
+    transition: width 0.45s ease !important;
+    border-radius: 2px !important;
 }
 
-/* Buttons Container */
+/* ── Acciones ──────────────────────────────────────────────────────────── */
 .sdl-actions {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 9px;
 }
 
-/* Button & Tooltip */
 .sdl-btn-container {
     position: relative;
     width: 100%;
 }
 
+/* Base del botón */
 .sdl-btn {
     width: 100% !important;
     border: none !important;
-    border-radius: 8px !important;
+    border-radius: 9px !important;
     color: #fff !important;
+    font-family: inherit !important;
     font-weight: 600 !important;
     font-size: 13px !important;
-    padding: 14px 16px !important;
+    padding: 12px 14px !important;
     cursor: pointer !important;
-    transition: all 0.2s !important;
+    transition: filter 0.15s ease, transform 0.12s ease !important;
     text-align: left !important;
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    gap: 10px;
+    line-height: 1.3 !important;
+    letter-spacing: -0.01em;
 }
 
-/* Specific Buttons */
-.sdl-btn-primary {
-    background: #0091ea !important;
-    /* Standard Blue */
-    box-shadow: 0 4px 12px rgba(0, 145, 234, 0.2) !important;
-}
-
-.sdl-btn-primary:hover {
-    background: #00b0ff !important;
+.sdl-btn:hover:not(:disabled) {
+    filter: brightness(1.12);
     transform: translateY(-1px);
 }
 
+.sdl-btn:active:not(:disabled) {
+    filter: brightness(0.95);
+    transform: translateY(0);
+}
+
+.sdl-btn:disabled {
+    opacity: 0.6 !important;
+    cursor: default !important;
+    transform: none !important;
+    filter: none !important;
+}
+
+/* Botón principal — Escaneo HQ */
+.sdl-btn-primary {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4) !important;
+}
+
+/* Botón con dos líneas de texto (título + subtítulo) */
+.sdl-btn-twoline {
+    flex-direction: row !important;
+    align-items: center !important;
+    padding: 11px 14px !important;
+}
+
+.sdl-btn-body {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+    flex: 1 !important;
+    min-width: 0 !important;
+    text-align: left !important;
+}
+
+.sdl-btn-title {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+}
+
+.sdl-btn-sub {
+    font-size: 11px !important;
+    font-weight: 400 !important;
+    opacity: 0.55 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Botón modo Sin Cortes (fit). Tono azul-grisáceo más discreto */
+.sdl-btn-fit {
+    background: rgba(255, 255, 255, 0.07) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+.sdl-btn-fit:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Cuando un modo está seleccionado, el otro se oscurece */
+.sdl-btn-dimmed {
+    opacity: 0.3 !important;
+    pointer-events: none !important;
+    transition: opacity 0.3s ease !important;
+}
+
+/* Botón secundario — PDF Original. Neutro para no competir con los modos de escaneo */
 .sdl-btn-vector {
-    background: #4a148c !important;
-    /* Purple/Premium */
-    box-shadow: 0 4px 12px rgba(74, 20, 140, 0.3) !important;
+    background: rgba(255, 255, 255, 0.07) !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 
-.sdl-btn-vector:hover {
-    background: #6a1b9a !important;
-    transform: translateY(-1px);
-}
-
+/* Botón en vista no-embed (redirect) */
 .sdl-btn-glow {
-    background: linear-gradient(135deg, #FF3CAC, #784BA0) !important;
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4) !important;
 }
 
-/* Subtext in button */
-.sdl-btn span {
-    pointer-events: none;
-}
-
+/* Badge pequeño dentro del botón */
 .sdl-badge {
-    background: rgba(0, 0, 0, 0.2) !important;
-    padding: 2px 6px !important;
-    border-radius: 4px !important;
+    background: rgba(255, 255, 255, 0.13) !important;
+    padding: 3px 7px !important;
+    border-radius: 5px !important;
     font-size: 10px !important;
-    text-transform: uppercase;
     font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-/* Tooltip Logic */
+/* Badge verde "PREMIUM" en el botón principal */
+.sdl-badge.safe {
+    background: rgba(52, 211, 153, 0.18) !important;
+    color: #6ee7b7 !important;
+}
+
+/* Badge gris en el botón secundario */
+.sdl-badge.beta {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* ── Tooltip ───────────────────────────────────────────────────────────── */
 .sdl-tooltip {
     visibility: hidden;
-    width: 280px;
-    background-color: rgba(0, 0, 0, 0.95);
-    color: #fff;
-    text-align: center;
-    border-radius: 6px;
-    padding: 8px 12px;
+    width: 256px;
+    background: #1a1a1e;
+    color: rgba(255, 255, 255, 0.8);
+    text-align: left;
+    border-radius: 9px;
+    padding: 10px 13px;
     position: absolute;
-    z-index: 1;
-    bottom: 125%;
-    /* Position above button */
+    z-index: 10;
+    bottom: calc(100% + 9px);
     left: 50%;
-    margin-left: -140px;
+    transform: translateX(-50%);
     opacity: 0;
-    transition: opacity 0.3s;
+    transition: opacity 0.18s ease;
     font-size: 12px;
     font-weight: 400;
-    line-height: 1.4;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+    line-height: 1.55;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
     pointer-events: none;
 }
 
@@ -231,7 +309,7 @@
     margin-left: -5px;
     border-width: 5px;
     border-style: solid;
-    border-color: rgba(0, 0, 0, 0.95) transparent transparent transparent;
+    border-color: #1a1a1e transparent transparent transparent;
 }
 
 .sdl-btn-container:hover .sdl-tooltip {
@@ -239,84 +317,84 @@
     opacity: 1;
 }
 
+/* ── Separador entre botones ──────────────────────────────────────────── */
 .sdl-divider {
     text-align: center;
-    color: rgba(255, 255, 255, 0.2);
-    font-size: 10px;
+    color: rgba(255, 255, 255, 0.16);
+    font-size: 10.5px;
+    letter-spacing: 0.6px;
     text-transform: uppercase;
-    letter-spacing: 1px;
 }
 
-/* ── Banner de aviso para documentos grandes ─────────────────────────── */
-/* Se muestra cuando el documento supera el umbral de páginas definido   */
-/* en content.js (LARGE_DOC_THRESHOLD). Usa color ámbar para urgencia.  */
+/* ── Banner documentos grandes ─────────────────────────────────────────── */
 .sdl-large-doc-warning {
-    background: rgba(255, 160, 0, 0.1) !important;
-    border: 1px solid rgba(255, 160, 0, 0.45) !important;
-    border-radius: 8px !important;
-    padding: 12px 14px !important;
+    background: rgba(234, 179, 8, 0.07) !important;
+    border: 1px solid rgba(234, 179, 8, 0.25) !important;
+    border-radius: 9px !important;
+    padding: 11px 13px !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 10px !important;
-    animation: sdl-warning-pulse 2.5s ease-in-out infinite;
-}
-
-@keyframes sdl-warning-pulse {
-
-    0%,
-    100% {
-        box-shadow: 0 0 0 0 rgba(255, 160, 0, 0);
-    }
-
-    50% {
-        box-shadow: 0 0 0 4px rgba(255, 160, 0, 0.18);
-    }
 }
 
 .sdl-warning-text {
-    color: #ffd54f !important;
+    color: #fbbf24 !important;
     font-size: 12px !important;
     font-weight: 500 !important;
     line-height: 1.5 !important;
     margin: 0 !important;
 }
 
-/* Botón de acción directa dentro del banner: más llamativo que el vector */
 .sdl-btn-warning-cta {
-    background: linear-gradient(135deg, #ff8f00, #e65100) !important;
-    box-shadow: 0 4px 14px rgba(230, 81, 0, 0.4) !important;
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%) !important;
+    box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3) !important;
     font-size: 12px !important;
-    padding: 10px 14px !important;
+    padding: 10px 13px !important;
 }
 
 .sdl-btn-warning-cta:hover {
-    background: linear-gradient(135deg, #ffa000, #ef6c00) !important;
+    filter: brightness(1.1);
     transform: translateY(-1px);
-    box-shadow: 0 6px 18px rgba(230, 81, 0, 0.5) !important;
 }
 
-/* Mini-aviso no intrusivo que aparece al hacer click en "Escaneo HQ"    */
-/* cuando el documento tiene muchas páginas. Texto ambar, sin caja.      */
+/* ── Mini-aviso doc largo ──────────────────────────────────────────────── */
 .sdl-hq-toast {
-    color: #ffd54f !important;
-    font-size: 11px !important;
+    color: #fbbf24 !important;
+    font-size: 11.5px !important;
     font-weight: 500 !important;
     line-height: 1.4 !important;
-    margin: 6px 0 0 0 !important;
+    margin: 4px 0 0 0 !important;
     padding: 0 !important;
     background: none !important;
     border: none !important;
-    animation: sdl-toast-in 0.3s ease;
+    animation: sdl-toast-in 0.25s ease;
 }
 
 @keyframes sdl-toast-in {
     from {
         opacity: 0;
-        transform: translateY(-4px);
+        transform: translateY(-3px);
     }
 
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+/* ── Animación de éxito ────────────────────────────────────────────────── */
+.sdl-pulse-success {
+    animation: sdl-success 1.6s ease-in-out 2;
+}
+
+@keyframes sdl-success {
+
+    0%,
+    100% {
+        box-shadow: 0 4px 14px rgba(52, 211, 153, 0.3);
+    }
+
+    50% {
+        box-shadow: 0 4px 22px rgba(52, 211, 153, 0.8);
     }
 }
