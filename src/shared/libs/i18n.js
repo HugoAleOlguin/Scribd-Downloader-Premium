@@ -1,136 +1,170 @@
 /**
  * Scribd Premium Downloader
  * Translations Library
- * @version 2.7.0
+ * @version 2.8.0
  */
 
 const I18n = {
     es: {
         popup: {
             title: "Scribd Premium",
-            subtitle: "Suite de Descarga",
-            status: "Extensión Activa y Lista",
-            how_to: "CÓMO USAR",
-            // Instrucciones detalladas y específicas para el usuario hispanohablante
-            step1: "Abre cualquier documento en <strong>Scribd</strong> (libros, artículos, presentaciones, etc.). Asegúrate de que el documento sea accesible.",
-            step2: "Aparecerá un <strong>panel flotante</strong> en la esquina de la pantalla. Si no lo ves, recarga la página con F5.",
-            step3: "Elige <strong>'Escaneo HQ'</strong> para capturar página a página o <strong>'PDF Original'</strong> para intentar descargar el archivo nativo.",
-            footer: "v2.5.6 Premium — Código Abierto"
+            subtitle: "Descargador de documentos",
+            status: "Lista para usar",
+            how_to: "¿CÓMO FUNCIONA?",
+            // Instrucciones claras y sin tecnicismos
+            step1: "Abre cualquier documento en <strong>Scribd</strong> que quieras guardar (libro, apunte, presentación, etc.).",
+            step2: "Aparecerá un <strong>panel flotante</strong> en la pantalla. Si no lo ves, recarga la página con F5.",
+            step3: "Pulsa <strong>'Escaneo Premium'</strong> para una copia de alta calidad, o <strong>'PDF Original'</strong> si quieres probar la descarga directa.",
+            footer: "v2.8.0 — Open Source"
         },
         overlay: {
             title: "⚡ Scribd Premium",
-            id: "ID Doc:",
+            id: "ID:",
             file: "Archivo:",
             pages: "Páginas:",
             analyzing: "Contando páginas...",
-            activate: "▶ ACTIVAR MODO DESCARGA",
-            // Botón principal: escaneo página a página con captura de pantalla
-            hq_btn: "ESCANEO INTELIGENTE (HQ)",
-            hq_badge: "100% SEGURO",
-            hq_tooltip: "Captura cada página individualmente como imagen PNG de alta resolución y las ensambla en un PDF. Funciona aunque el documento tenga restricciones de descarga.",
-            // Sección de opciones avanzadas
-            adv_opts: "OPCIONES AVANZADAS",
-            // Botón secundario: extracción del PDF original
-            vec_btn: "PDF ORIGINAL",
-            vec_badge: "AUTOMÁTICO",
-            vec_tooltip: "Intenta descargar el archivo PDF original desde servidores externos. Más rápido, pero puede fallar si el servidor no lo expone. Si falla, usa 'Escaneo HQ'.",
-            // Aviso para documentos con muchas páginas: recomienda PDF Original
-            large_doc_warning: "⚠️ Documento grande detectado ({pages} páginas). El Escaneo HQ generará múltiples archivos y tardará horas. Se recomienda 100% usar \"PDF Original\".",
-            // Mini-aviso que aparece al hacer click en Escaneo HQ con doc grande
-            hq_long_warning: "⏱ Esto tardará mucho tiempo. Mantené esta pestaña abierta.",
-            // Estados dinámicos del botón durante el proceso
+            activate: "Ir al modo de descarga",
+            // Botón principal: escaneo HQ página a página
+            hq_btn: "Escaneo Premium (Alta Calidad)",
+            hq_badge: "RECOMENDADO",
+            hq_tooltip: "Captura cada página como imagen de máxima resolución y genera un PDF completo. Tarda unos minutos pero garantiza resultados perfectos, incluso en documentos con restricciones de descarga.",
+            // Sección con la opción alternativa
+            adv_opts: "Opción alternativa",
+            // Botón secundario: PDF original del servidor
+            vec_btn: "Descargar PDF Original",
+            vec_badge: "RÁPIDO",
+            vec_tooltip: "Intenta obtener el PDF directamente del servidor externo. Mucho más rápido (segundos), aunque no siempre está disponible. Si falla, usa el Escaneo Premium de arriba.",
+            // Aviso para documentos muy largos
+            large_doc_warning: "⚠️ Documento extenso ({pages} páginas): el Escaneo Premium tardará bastante y creará varios archivos. Te recomendamos probar primero 'Descargar PDF Original'.",
+            // Aviso al iniciar escaneo en doc grande
+            hq_long_warning: "Escaneo iniciado. Puede tardar un buen rato — no cierres esta pestaña.",
+            // Estados del botón durante el proceso
             states: {
                 loading: "Preparando escaneo...",
                 saving: "Generando PDF...",
-                success: "¡PDF Guardado!",
-                error: "Error: "
+                success: "¡PDF guardado correctamente!",
+                error: "Algo salió mal: "
             },
-            // Mensajes de error específicos con contexto
+            // Mensajes de error
             errors: {
                 pdf_lib: "Recarga la página (F5) e intenta de nuevo.",
-                no_pages: "No se encontraron páginas. ¿Estás en un documento de Scribd?",
-                capture: "Error de captura. Verifica los permisos de la extensión."
+                no_pages: "No se encontraron páginas. ¿Estás viendo un documento de Scribd?",
+                capture: "No se pudo capturar la pantalla. Revisa los permisos de la extensión."
             }
         },
         toast: {
             init: { title: "Iniciando", desc: "Conectando al servidor..." },
-            verify: { title: "Verificación de Seguridad", desc: "Resolviendo protección Cloudflare..." },
+            verify: { title: "Verificación de Seguridad", desc: "Completando la protección Cloudflare automáticamente..." },
+            // Cloudflare no pudo resolverse solo — pedimos ayuda manual al usuario
+            verify_manual: {
+                title: "Acción requerida",
+                desc: "Cloudflare necesita tu ayuda. Completa el captcha en la página y la descarga seguirá sola.",
+                help: "<b>¿Qué hago?</b><br/>Haz clic en el cuadro de verificación de Cloudflare que ves en la página. Una vez que lo completes, la extensión continuará automáticamente.<br/><br/>Si no aparece ningún cuadro, recarga la página e inténtalo de nuevo."
+            },
             verify_done: { title: "Verificación Completada", desc: "Accediendo al documento..." },
-            wait: { title: "Generando Enlace de Descarga", desc: "Sincronizando con servidor externo..." },
+            wait: { title: "Generando Enlace de Descarga", desc: "Esperando respuesta del servidor externo..." },
+            // El servidor tardó demasiado en generar el enlace — no es un error crítico
+            wait_timeout: {
+                title: "El servidor está tardando",
+                desc: "El servidor externo no generó el enlace a tiempo. Puedes cerrar esta pestaña e intentarlo de nuevo, o usar 'Escaneo HQ'.",
+                help: "<b>¿Qué pasó?</b><br/>El servidor externo de descarga está ocupado o el documento no está disponible temporalmente.<br/><br/>👉 <b>Opciones:</b><br/>• Cierra esta pestaña y vuelve a pulsar 'PDF Original' en unos minutos.<br/>• Usa <b>'Escaneo HQ'</b> como alternativa segura."
+            },
             redirect: { title: "Redirigiendo", desc: "Entrando a la fase final de descarga..." },
-            analyzing: { title: "Analizando Documento", desc: "Localizando el flujo de datos del PDF..." },
+            analyzing: { title: "Analizando Documento", desc: "Localizando el archivo PDF..." },
             validating: { title: "Verificando Integridad", desc: "Comprobando tamaño y formato del archivo..." },
-            success: { title: "¡Documento Validado!", desc: "La descarga ha comenzado." },
+            success: { title: "¡Documento Validado!", desc: "La descarga ha comenzado. ¡Listo!" },
+            error_detected: {
+                title: "Documento No Disponible",
+                desc: "El servidor indica que este documento no puede descargarse.",
+                help: "<b>¿Qué pasó?</b><br/>El servidor externo no tiene disponible este documento en formato PDF original.<br/><br/>👉 <b>Solución:</b> Usa la opción <b>'Escaneo HQ'</b> para capturarlo página a página. Funciona en casi todos los documentos."
+            },
             error_damaged: {
                 title: "Archivo No Disponible",
                 desc: "El PDF original está vacío o dañado.",
-                help: "<b>Descarga Fallida:</b><br/>El archivo PDF original no está disponible o está dañado en el servidor externo. <br/><br/>👉 <b>Solución:</b> Cierra esta pestaña y usa la opción <b>'Escaneo HQ'</b> en el panel de la extensión. Este método alternativo funciona en casi todos los documentos."
+                help: "<b>Descarga Fallida:</b><br/>El archivo PDF original no está disponible o está dañado en el servidor externo.<br/><br/>👉 <b>Solución:</b> Cierra esta pestaña y usa la opción <b>'Escaneo HQ'</b> en el panel de la extensión. Este método alternativo funciona en casi todos los documentos."
             },
-            error_timeout: { title: "Tiempo de Espera Agotado", desc: "El servidor externo no respondió. Inténtalo de nuevo en unos minutos." }
+            error_timeout: { title: "Tiempo de Espera Agotado", desc: "El servidor externo tardó demasiado. Cierra esta pestaña e inténtalo de nuevo en unos minutos." }
         }
     },
     en: {
         popup: {
             title: "Scribd Premium",
-            subtitle: "Download Suite",
-            status: "Extension Active & Ready",
-            how_to: "HOW TO USE",
-            // Detailed and specific instructions for English-speaking users
-            step1: "Open any document on <strong>Scribd</strong> (books, articles, presentations, etc.). Make sure the document page is fully loaded.",
-            step2: "A <strong>floating panel</strong> will appear in the corner of the screen. If you don't see it, reload the page with F5.",
-            step3: "Choose <strong>'Smart Scan (HQ)'</strong> to capture each page individually (recommended) or <strong>'Original PDF'</strong> to attempt a direct native download.",
-            footer: "v2.5.6 Premium — Open Source"
+            subtitle: "Document Downloader",
+            status: "Ready to use",
+            how_to: "HOW DOES IT WORK?",
+            // Clear, jargon-free instructions
+            step1: "Open any document on <strong>Scribd</strong> that you want to save (book, notes, presentation, etc.).",
+            step2: "A <strong>floating panel</strong> will appear on screen. If you don't see it, reload the page with F5.",
+            step3: "Click <strong>'Premium Scan'</strong> for a high-quality copy, or <strong>'Original PDF'</strong> to try a direct download.",
+            footer: "v2.8.0 — Open Source"
         },
         overlay: {
             title: "⚡ Scribd Premium",
-            id: "Doc ID:",
+            id: "ID:",
             file: "File:",
             pages: "Pages:",
             analyzing: "Counting pages...",
-            activate: "▶ ACTIVATE DOWNLOAD MODE",
-            // Main button: page-by-page screenshot scan
-            hq_btn: "SMART SCAN (HQ)",
-            hq_badge: "100% SAFE",
-            hq_tooltip: "Captures each page individually as a high-resolution PNG image and assembles them into a PDF. Works even if the document has download restrictions.",
-            // Advanced options section
-            adv_opts: "ADVANCED OPTIONS",
-            // Secondary button: original PDF extraction
-            vec_btn: "ORIGINAL PDF",
-            vec_badge: "AUTOMATIC",
-            vec_tooltip: "Attempts to download the original PDF file from external servers. Faster, but may fail if the server doesn't expose it. If it fails, use 'Smart Scan (HQ)'.",
-            // Warning for documents with many pages: recommends Original PDF
-            large_doc_warning: "⚠️ Large document detected ({pages} pages). HQ Scan will generate multiple files and take hours. 100% recommended: use \"Original PDF\".",
-            // Mini-warning shown when clicking HQ Scan on a large document
-            hq_long_warning: "⏱ This will take a long time. Please keep this tab open.",
-            // Dynamic button states during the process
+            activate: "Go to download mode",
+            // Main button: HQ page-by-page scan
+            hq_btn: "Premium Scan (High Quality)",
+            hq_badge: "RECOMMENDED",
+            hq_tooltip: "Captures each page as a full-resolution image and assembles the complete PDF. Takes a few minutes but delivers perfect results, even on documents with download restrictions.",
+            // Alternative option section
+            adv_opts: "Alternative option",
+            // Secondary button: original PDF from server
+            vec_btn: "Download Original PDF",
+            vec_badge: "FAST",
+            vec_tooltip: "Tries to get the PDF directly from an external server. Much faster (seconds), though not always available. If it fails, use the Premium Scan above.",
+            // Warning for very long documents
+            large_doc_warning: "⚠️ Large document ({pages} pages): Premium Scan will take a while and create multiple files. We recommend trying 'Download Original PDF' first.",
+            // Warning shown when starting scan on large doc
+            hq_long_warning: "Scan started. This may take a while — please keep this tab open.",
+            // Button states during the process
             states: {
                 loading: "Preparing scan...",
                 saving: "Generating PDF...",
-                success: "PDF Saved!",
-                error: "Error: "
+                success: "PDF saved successfully!",
+                error: "Something went wrong: "
             },
-            // Specific error messages with context
+            // Error messages
             errors: {
                 pdf_lib: "Reload the page (F5) and try again.",
-                no_pages: "No pages found. Are you on a Scribd document?",
-                capture: "Capture error. Check the extension permissions."
+                no_pages: "No pages found. Are you viewing a Scribd document?",
+                capture: "Couldn't capture the screen. Check the extension permissions."
             }
         },
         toast: {
             init: { title: "Starting", desc: "Connecting to server..." },
-            verify: { title: "Security Verification", desc: "Solving Cloudflare protection..." },
+            verify: { title: "Security Check", desc: "Completing Cloudflare protection automatically..." },
+            // Cloudflare could not resolve automatically — asking user for manual help
+            verify_manual: {
+                title: "Action Required",
+                desc: "Cloudflare needs your help. Complete the captcha on the page — the download will continue automatically.",
+                help: "<b>What to do?</b><br/>Click the Cloudflare verification checkbox visible on the page. Once completed, the extension will continue automatically.<br/><br/>If no checkbox appears, reload the page and try again."
+            },
             verify_done: { title: "Verification Complete", desc: "Accessing document..." },
-            wait: { title: "Generating Download Link", desc: "Synchronizing with external server..." },
+            wait: { title: "Generating Download Link", desc: "Waiting for external server response..." },
+            // Server took too long to generate the link — not a critical error
+            wait_timeout: {
+                title: "Server Is Taking Too Long",
+                desc: "The external server didn't generate the link in time. You can close this tab and try again, or use 'Smart Scan (HQ)'.",
+                help: "<b>What happened?</b><br/>The external download server is busy or the document is temporarily unavailable.<br/><br/>👉 <b>Options:</b><br/>• Close this tab and click 'Original PDF' again in a few minutes.<br/>• Use <b>'Smart Scan (HQ)'</b> as a reliable alternative."
+            },
             redirect: { title: "Redirecting", desc: "Entering final download phase..." },
-            analyzing: { title: "Analyzing Document", desc: "Locating PDF data stream..." },
+            analyzing: { title: "Analyzing Document", desc: "Locating PDF file..." },
             validating: { title: "Verifying Integrity", desc: "Checking file size and format..." },
-            success: { title: "Document Validated!", desc: "Download has started." },
+            success: { title: "Document Ready!", desc: "Download has started. Enjoy!" },
+            error_detected: {
+                title: "Document Unavailable",
+                desc: "The server indicates this document cannot be downloaded.",
+                help: "<b>What happened?</b><br/>The external server does not have this document available as an original PDF.<br/><br/>👉 <b>Solution:</b> Use the <b>'Smart Scan (HQ)'</b> option to capture it page by page. Works on almost all documents."
+            },
             error_damaged: {
                 title: "File Unavailable",
                 desc: "The original PDF is empty or corrupted.",
-                help: "<b>Download Failed:</b><br/>The original PDF file is not available or is corrupted on the external server. <br/><br/>👉 <b>Solution:</b> Close this tab and use the <b>'Smart Scan (HQ)'</b> option in the extension panel. This alternative method works on almost all documents."
+                help: "<b>Download Failed:</b><br/>The original PDF file is not available or is corrupted on the external server.<br/><br/>👉 <b>Solution:</b> Close this tab and use the <b>'Smart Scan (HQ)'</b> option in the extension panel. This alternative method works on almost all documents."
             },
-            error_timeout: { title: "Request Timed Out", desc: "The external server did not respond. Try again in a few minutes." }
+            error_timeout: { title: "Request Timed Out", desc: "The external server took too long. Close this tab and try again in a few minutes." }
         }
     }
 };
