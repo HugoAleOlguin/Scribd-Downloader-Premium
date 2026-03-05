@@ -163,7 +163,7 @@ async function captureElementWithHtml2Canvas(element) {
   return canvas.toDataURL('image/png');
 }
 
-async function executeHQScan() {
+async function executeHQScan(mode = 'quality') {
   if (AppState.isProcessing) return;
   AppState.isProcessing = true;
 
@@ -190,8 +190,13 @@ async function executeHQScan() {
   function openSWKeepalive() {
     try {
       const port = chrome.runtime.connect({ name: 'spd-keepalive' });
-      // Heartbeat cada 20s para mantener el SW activo durante el scan
-      const interval = setInterval(() => port.postMessage('ping'), 20000);
+      // Heartbeat cada 20s. Envuelto en try-catch porque Firefox puede
+      // desconectar el puerto antes de que el intervalo se limpie,
+      // generando "Attempting to use a disconnected port object".
+      const interval = setInterval(() => {
+        try { port.postMessage('ping'); }
+        catch (_) { clearInterval(interval); }  // puerto ya cerrado, limpiar
+      }, 20000);
       port.onDisconnect.addListener(() => clearInterval(interval));
       return port;
     } catch (e) {
@@ -249,10 +254,9 @@ async function executeHQScan() {
       for (let i = chunkStart; i < chunkEnd; i++) {
         const page = pages[i];
 
-        // 1. Capturamos siempre al 100% de zoom, sin reducir la resolución.
-        //    Para páginas más altas que el viewport usamos strip-stitch:
-        //    capturamos el contenido en franjas verticales y las pegamos en
-        //    un canvas de alta resolución (pageW*dpr × pageH*dpr píxeles).
+        // Medimos siempre las dimensiones reales a zoom 100%.
+        // Esto garantiza que el canvas tenga las dimensiones correctas
+        // y que addPageFromCanvas calcule bien el layout en A4.
         resetZoom();
         page.scrollIntoView({ behavior: 'instant', block: 'start' });
         await new Promise(r => setTimeout(r, 900));
@@ -260,78 +264,162 @@ async function executeHQScan() {
         const dpr = window.devicePixelRatio || 1;
         const vh = window.innerHeight;
 
-        // Dimensiones de la página a zoom 100%.
         const firstRect = page.getBoundingClientRect();
         const pageW = firstRect.width;
         const pageH = firstRect.height;
 
-        // Canvas destino: resolución física completa (CSS px × DPR).
-        const fullCanvas = document.createElement('canvas');
-        fullCanvas.width = Math.round(pageW * dpr);
-        fullCanvas.height = Math.round(pageH * dpr);
-        const ctx = fullCanvas.getContext('2d');
-
-        // 2. Ocultamos el overlay antes del primer screenshot.
         const overlay = document.getElementById('sdl-overlay');
         if (overlay) overlay.style.display = 'none';
         await new Promise(r => setTimeout(r, 100));
 
-        // 3. Stitching: recorremos la página en tiras verticales.
-        //    dstY se deriva de la posición DOM real (-curRect.top) en cada iteración,
-        //    NO de capturedH acumulado. Esto elimina el drift de punto flotante que
-        //    causaba la costura visible entre strips al hacer scrollContainer.scrollTop.
-        let capturedH = 0;
-        while (capturedH < pageH) {
-          const curRect = page.getBoundingClientRect();
-          // Cuánto de la página ya quedó por encima del viewport (scroll real).
-          const scrolledPast = Math.max(0, -curRect.top);
-          const visibleTop = Math.max(0, curRect.top);
-          const visibleBottom = Math.min(vh, curRect.bottom);
-          const stripH = visibleBottom - visibleTop;
+        // Espera a que las <img> visibles terminen de cargar antes de capturar.
+        // Scribd lazy-carga el contenido al scrollear; sin esta espera el PDF
+        // puede tener zonas en blanco o con calidad baja que parecen cortes.
+        const waitImagesLoaded = () => new Promise(resolve => {
+          const imgs = Array.from(page.querySelectorAll('img'))
+            .filter(img => {
+              const r = img.getBoundingClientRect();
+              return r.top < window.innerHeight && r.bottom > 0 && r.width > 4;
+            });
+          const pending = imgs.filter(img => !img.complete);
+          if (!pending.length) { requestAnimationFrame(resolve); return; }
+          let done = 0;
+          const onDone = () => { if (++done >= pending.length) resolve(); };
+          pending.forEach(img => {
+            img.addEventListener('load', onDone, { once: true });
+            img.addEventListener('error', onDone, { once: true });
+          });
+          setTimeout(resolve, 2000); // fallback: capturar igual si tarda demasiado
+        });
 
-          if (stripH <= 0) break;
+        let dataUrl;
+
+        if (mode === 'quality') {
+          // ── Modo Alta Calidad: strip-stitch ──────────────────────────────
+          // Captura la página en franjas verticales y las une en un canvas.
+          // Máxima resolución, aunque puede quedar un corte sutil entre franjas
+          // en pantallas con DPR no entero (1.25x, 1.5x) o lazy-render lento.
+
+          const fullCanvas = document.createElement('canvas');
+          fullCanvas.width = Math.round(pageW * dpr);
+          fullCanvas.height = Math.round(pageH * dpr);
+          const ctx = fullCanvas.getContext('2d');
+
+          const STRIP_OVERLAP = 40; // px CSS de solapamiento entre franjas
+          const STABLE_FRAMES = 3;  // frames sin cambio = scroll físicamente quieto
+
+          // Espera a que scrollTop deje de cambiar durante N frames consecutivos.
+          const waitScrollStable = () => new Promise(resolve => {
+            let prev = scrollContainer.scrollTop;
+            let stableCount = 0;
+            const check = () => requestAnimationFrame(() => {
+              const cur = scrollContainer.scrollTop;
+              if (cur === prev) {
+                if (++stableCount >= STABLE_FRAMES) requestAnimationFrame(resolve);
+                else check();
+              } else { prev = cur; stableCount = 0; check(); }
+            });
+            requestAnimationFrame(check);
+          });
+
+          let capturedH = 0;
+          while (capturedH < pageH) {
+            const curRect = page.getBoundingClientRect();
+            const scrolledPast = Math.max(0, -curRect.top);
+            const visibleTop = Math.max(0, curRect.top);
+            const visibleBottom = Math.min(vh, curRect.bottom);
+            const stripH = visibleBottom - visibleTop;
+
+            if (stripH <= 0) break;
+
+            const res = await Utils.sendMessageAsync({ action: 'capture_tab' });
+            if (res.success && res.image) {
+              await new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => {
+                  ctx.drawImage(
+                    img,
+                    Math.round(curRect.left * dpr), Math.round(visibleTop * dpr),
+                    Math.round(pageW * dpr), Math.round(stripH * dpr),
+                    0, Math.round(scrolledPast * dpr),
+                    Math.round(pageW * dpr), Math.round(stripH * dpr)
+                  );
+                  resolve();
+                };
+                img.onerror = resolve;
+                img.src = res.image;
+              });
+            } else {
+              console.warn('[SPD] capture_tab fallido en página', i + 1, res.error);
+            }
+
+            capturedH = scrolledPast + stripH;
+            if (capturedH < pageH) {
+              scrollContainer.scrollTop += Math.max(1, Math.round(stripH - STRIP_OVERLAP));
+              await waitScrollStable();
+              await waitImagesLoaded();
+            }
+          }
+
+          dataUrl = fullCanvas.toDataURL('image/png');
+
+        } else {
+          // ── Modo Sin Cortes: zoom-fit ─────────────────────────────────────
+          // Reduce el zoom de la página para que quepa entera en el viewport
+          // y toma UN único screenshot. No hay franjas, no hay cortes.
+          // La imagen tiene menos píxeles que el modo Alta Calidad
+          // (proporcional al nivel de zoom aplicado), pero el resultado
+          // siempre es continuo sin importar la resolución de pantalla.
+
+          const zoomRatio = Math.min(1.0, (vh * 0.95) / pageH);
+          const needsZoom = zoomRatio < 1.0;
+
+          if (needsZoom) {
+            applyZoom(zoomRatio);
+            await new Promise(r => setTimeout(r, 400)); // espera el reflow del zoom
+            page.scrollIntoView({ behavior: 'instant', block: 'start' });
+            await new Promise(r => setTimeout(r, 200));
+          }
+
+          await waitImagesLoaded();
+
+          const fitRect = page.getBoundingClientRect();
+          const fitCanvas = document.createElement('canvas');
+          fitCanvas.width = Math.round(fitRect.width * dpr);
+          fitCanvas.height = Math.round(fitRect.height * dpr);
+          const fitCtx = fitCanvas.getContext('2d');
 
           const res = await Utils.sendMessageAsync({ action: 'capture_tab' });
-
           if (res.success && res.image) {
-            await new Promise((resolve) => {
+            await new Promise(resolve => {
               const img = new Image();
               img.onload = () => {
-                // Origen en el screenshot: la franja visible de esta página.
-                const srcX = Math.round(curRect.left * dpr);
-                const srcY = Math.round(visibleTop * dpr);
-                const srcW = Math.round(pageW * dpr);
-                const srcH = Math.round(stripH * dpr);
-                // Destino derivado de la posición DOM real, no acumulado.
-                // Así cualquier ±1px de error de scroll no genera costura.
-                const dstY = Math.round(scrolledPast * dpr);
-                ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, dstY, srcW, srcH);
+                fitCtx.drawImage(
+                  img,
+                  Math.round(fitRect.left * dpr),
+                  Math.round(Math.max(0, fitRect.top) * dpr),
+                  Math.round(fitRect.width * dpr),
+                  Math.round(fitRect.height * dpr),
+                  0, 0, fitCanvas.width, fitCanvas.height
+                );
                 resolve();
               };
               img.onerror = resolve;
               img.src = res.image;
             });
           } else {
-            console.warn('[SPD] capture_tab fallido en página', i + 1, res.error || 'sin respuesta');
+            console.warn('[SPD] capture_tab fallido (fit) en página', i + 1, res.error);
           }
 
-          // Actualizamos capturedH desde la posición DOM real para la condición de salida.
-          capturedH = scrolledPast + stripH;
+          if (needsZoom) resetZoom();
 
-          // Scrolleamos al siguiente strip si quedan píxeles sin capturar.
-          if (capturedH < pageH) {
-            scrollContainer.scrollTop += Math.round(stripH);
-            await new Promise(r => setTimeout(r, 350));
-          }
+          // Pasamos las dimensiones ORIGINALES (sin zoom) para que jsPDF
+          // calcule el layout A4 correctamente con el aspect ratio real.
+          dataUrl = fitCanvas.toDataURL('image/png');
         }
 
-        // 4. Restauramos el overlay.
+        // Restaurar overlay y añadir la página al PDF (común a ambos modos)
         if (overlay) overlay.style.display = 'flex';
-
-        // 5. Añadimos la página completa (alta resolución) al PDF.
-        //    addPageFromCanvas usa las dimensiones CSS para calcular el fit en A4;
-        //    el canvas con pixeles físicos (dpr×) le da la densidad de imagen al PDF.
-        const dataUrl = fullCanvas.toDataURL('image/png');
         await PDFHandler.addPageFromCanvas(pdf, dataUrl, { width: pageW, height: pageH });
 
         const pct = Math.round(((i + 1) / total) * 100);
@@ -423,15 +511,16 @@ const Interface = {
     const FallbackI18n = {
       es: {
         overlay: {
-          title: "⚡ Scribd Premium", id: "ID Doc:", file: "Archivo:", pages: "Páginas:", analyzing: "Contando páginas...",
-          activate: "▶ ACTIVAR MODO DESCARGA",
-          hq_btn: "ESCANEO INTELIGENTE (HQ)", hq_badge: "100% SEGURO",
-          hq_tooltip: "Captura cada página individualmente como imagen PNG de alta resolución y las ensambla en un PDF.",
-          adv_opts: "OPCIONES AVANZADAS",
-          vec_btn: "PDF ORIGINAL", vec_badge: "AUTOMÁTICO",
-          vec_tooltip: "Intenta descargar el PDF original desde servidores externos. Si falla, usa 'Escaneo HQ'.",
-          large_doc_warning: "⚠️ Documento grande detectado ({pages} páginas). El Escaneo HQ generará múltiples archivos y tardará horas. Se recomienda 100% usar \"PDF Original\".",
-          states: { loading: "Preparando escaneo...", saving: "Generando PDF...", success: "¡PDF Guardado!", error: "Error: " }
+          title: "⚡ Scribd Premium", id: "ID:", file: "Archivo:", pages: "Páginas:", analyzing: "Contando páginas...",
+          activate: "Ir al modo de descarga",
+          hq_btn: "Escaneo Premium (Alta Calidad)", hq_badge: "RECOMENDADO",
+          hq_tooltip: "Captura cada página como imagen de máxima resolución y genera un PDF completo.",
+          adv_opts: "Opción alternativa",
+          vec_btn: "Descargar PDF Original", vec_badge: "RÁPIDO",
+          vec_tooltip: "Intenta obtener el PDF directamente del servidor externo. Si falla, usa el Escaneo Premium.",
+          large_doc_warning: "⚠️ Documento extenso ({pages} páginas): el Escaneo Premium tardará bastante. Prueba primero 'Descargar PDF Original'.",
+          hq_long_warning: "Escaneo iniciado. Puede tardar un buen rato — no cierres esta pestaña.",
+          states: { loading: "Preparando escaneo...", saving: "Generando PDF...", success: "¡PDF guardado correctamente!", error: "Algo salió mal: " }
         }
       }
     };
@@ -496,13 +585,29 @@ const Interface = {
                 </div>` : ''}
 
                  <div class="sdl-actions">
+
+                    <!-- Dos modos de escaneo presentados como opciones claras -->
                     <div class="sdl-btn-container">
-                        <button id="sdl-action-btn" class="sdl-btn sdl-btn-primary">
-                            <span>${T.hq_btn}</span>
-                            <span class="sdl-badge safe">${T.hq_badge}</span>
+                        <button id="sdl-hq-quality-btn" class="sdl-btn sdl-btn-primary sdl-btn-twoline">
+                            <div class="sdl-btn-body">
+                                <span class="sdl-btn-title">${T.hq_quality_btn || 'Alta Calidad'}</span>
+                                <span class="sdl-btn-sub">${T.hq_quality_sub || 'Máxima nitidez — posibles cortes sutiles'}</span>
+                            </div>
+                            <span class="sdl-badge safe">${T.hq_quality_badge || 'RECOMENDADO'}</span>
                         </button>
-                        <span class="sdl-tooltip">${T.hq_tooltip}</span>
+                        <span class="sdl-tooltip">${T.hq_quality_tooltip || T.hq_tooltip}</span>
                         ${isLargeDoc ? `<p id="sdl-hq-toast" class="sdl-hq-toast" hidden></p>` : ''}
+                    </div>
+
+                    <div class="sdl-btn-container">
+                        <button id="sdl-hq-fit-btn" class="sdl-btn sdl-btn-fit sdl-btn-twoline">
+                            <div class="sdl-btn-body">
+                                <span class="sdl-btn-title">${T.hq_fit_btn || 'Sin Cortes'}</span>
+                                <span class="sdl-btn-sub">${T.hq_fit_sub || 'Sin interrupciones — imagen algo más pequeña'}</span>
+                            </div>
+                            <span class="sdl-badge">${T.hq_fit_badge || 'COMPATIBLE'}</span>
+                        </button>
+                        <span class="sdl-tooltip">${T.hq_fit_tooltip || ''}</span>
                     </div>
 
                     ${!isLargeDoc ? `
@@ -522,28 +627,37 @@ const Interface = {
     overlay.innerHTML = contentHtml;
     document.body.appendChild(overlay);
 
+    // Handlers de los dos botones de escaneo
+    const launchScan = (mode) => {
+      const activeBtn = document.getElementById(mode === 'quality' ? 'sdl-hq-quality-btn' : 'sdl-hq-fit-btn');
+      const otherBtn = document.getElementById(mode === 'quality' ? 'sdl-hq-fit-btn' : 'sdl-hq-quality-btn');
+
+      const start = () => {
+        if (activeBtn) activeBtn.classList.add('sdl-scanning');
+        if (otherBtn) otherBtn.classList.add('sdl-btn-dimmed');
+        executeHQScan(mode);
+      };
+
+      if (isLargeDoc) {
+        const toast = document.getElementById('sdl-hq-toast');
+        if (toast) { toast.textContent = T.hq_long_warning; toast.hidden = false; }
+        setTimeout(start, 1800);
+      } else {
+        start();
+      }
+    };
+
+    const qualityBtn = document.getElementById('sdl-hq-quality-btn');
+    const fitBtn = document.getElementById('sdl-hq-fit-btn');
+    if (qualityBtn) qualityBtn.onclick = () => launchScan('quality');
+    if (fitBtn) fitBtn.onclick = () => launchScan('fit');
+
+    // Botón de la vista no-embed (redirect a embed)
     const mainBtn = document.getElementById('sdl-action-btn');
-    if (mainBtn) {
-      mainBtn.onclick = isEmbed
-        ? () => {
-          // Si es un documento grande, mostrar mini-advertencia no intrusiva
-          // antes de lanzar el escaneo para que el usuario sepa que tardará.
-          if (isLargeDoc) {
-            const toast = document.getElementById('sdl-hq-toast');
-            if (toast) {
-              toast.textContent = T.hq_long_warning || '⏱ This will take a long time. Please keep this tab open.';
-              toast.hidden = false;
-            }
-            // Pequeña pausa para que el usuario vea el aviso antes de que
-            // el overlay oculte el botón y empiece el escaneo.
-            setTimeout(executeHQScan, 1800);
-          } else {
-            executeHQScan();
-          }
-        }
-        : () => {
-          window.location.href = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&access_key=key-1`;
-        };
+    if (mainBtn && !isEmbed) {
+      mainBtn.onclick = () => {
+        window.location.href = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&access_key=key-1`;
+      };
     }
 
     // Función compartida para lanzar la descarga de PDF original
@@ -582,19 +696,28 @@ const Interface = {
   },
 
   updateState: (state, text) => {
-    const btn = document.getElementById('sdl-action-btn');
-    if (btn) {
-      btn.querySelector('span:first-child').innerText = text;
-      if (state === 'loading') { btn.disabled = true; btn.style.cursor = 'wait'; }
-      if (state === 'error') { btn.style.background = '#ff5252'; btn.disabled = false; btn.style.cursor = 'pointer'; }
-      if (state === 'success') { btn.style.background = '#00e676'; btn.classList.add('sdl-pulse-success'); btn.disabled = true; }
-    }
+    // Buscamos el botón activo por la clase .sdl-scanning que se asigna al lanzar.
+    // Fallback a los IDs concretos para mantener compatibilidad.
+    const btn = document.querySelector('#sdl-overlay .sdl-scanning')
+      || document.getElementById('sdl-hq-quality-btn')
+      || document.getElementById('sdl-action-btn');
+    if (!btn) return;
+    const titleEl = btn.querySelector('.sdl-btn-title') || btn.querySelector('span:first-child');
+    if (titleEl) titleEl.innerText = text;
+    if (state === 'loading') { btn.disabled = true; btn.style.cursor = 'wait'; }
+    if (state === 'error') { btn.style.background = '#ef4444'; btn.disabled = false; btn.style.cursor = 'pointer'; }
+    if (state === 'success') { btn.style.background = '#22c55e'; btn.classList.add('sdl-pulse-success'); btn.disabled = true; }
   },
   updateProgress: (percent, text) => {
     const fill = document.getElementById('sdl-progress-fill');
-    const btn = document.getElementById('sdl-action-btn');
+    const btn = document.querySelector('#sdl-overlay .sdl-scanning')
+      || document.getElementById('sdl-hq-quality-btn')
+      || document.getElementById('sdl-action-btn');
     if (fill) fill.style.width = `${percent}%`;
-    if (text && btn) btn.querySelector('span:first-child').innerText = text;
+    if (text && btn) {
+      const titleEl = btn.querySelector('.sdl-btn-title') || btn.querySelector('span:first-child');
+      if (titleEl) titleEl.innerText = text;
+    }
   }
 };
 
