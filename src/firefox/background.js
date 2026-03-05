@@ -131,6 +131,7 @@ function injectAutopilot(urlToPaste, langCode, Translations, docName) {
                 .spd-progress { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 12px; overflow: hidden; }
                 .spd-bar { height: 100%; background: #00e676; transition: width 0.5s ease; box-shadow: 0 0 10px rgba(0,230,118,0.5); }
                 .spd-help { margin-top: 12px; font-size: 12px; background: rgba(255,82,82,0.1); border: 1px solid rgba(255,82,82,0.3); padding: 10px; border-radius: 6px; color: #ff8a80; line-height: 1.4; display: block; }
+                .spd-help-warn { margin-top: 12px; font-size: 12px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); padding: 10px; border-radius: 6px; color: #fcd34d; line-height: 1.4; display: block; }
                 .spd-close { position: absolute; top: 8px; right: 8px; background: transparent; border: none; color: rgba(255,255,255,0.3); cursor: pointer; font-size: 16px; line-height: 1; padding: 4px; }
                 .spd-close:hover { color: #fff; }
                 @keyframes spd-slide { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -144,11 +145,15 @@ function injectAutopilot(urlToPaste, langCode, Translations, docName) {
         const config = {
             info: { color: "#3b82f6", icon: "💎" },
             wait: { color: "#f59e0b", icon: "⏳" },
+            manual: { color: "#f59e0b", icon: "👆" },
             success: { color: "#10b981", icon: "✨" },
             error: { color: "#ef4444", icon: "⚠️" }
         };
         const c = config[type] || config.info;
         const pct = Math.min(100, (step / 4) * 100);
+
+        // Elige el estilo del bloque de ayuda según si es un aviso o un error
+        const helpClass = (type === 'manual' || type === 'wait') ? 'spd-help-warn' : 'spd-help';
 
         container.innerHTML = `
             <div class="spd-toast">
@@ -157,8 +162,8 @@ function injectAutopilot(urlToPaste, langCode, Translations, docName) {
                 <div class="spd-content">
                     <span class="spd-title" style="color:${c.color}">${title}</span>
                     <div class="spd-status">${status}</div>
-                    ${type !== 'error' ? `<div class="spd-progress"><div class="spd-bar" style="width:${pct}%"></div></div>` : ''}
-                    ${type === 'error' ? `<div class="spd-help">${customHelp || T.error_damaged.help}</div>` : ''}
+                    ${type !== 'error' && type !== 'manual' ? `<div class="spd-progress"><div class="spd-bar" style="width:${pct}%"></div></div>` : ''}
+                    ${customHelp ? `<div class="${helpClass}">${customHelp}</div>` : ''}
                 </div>
             </div>
         `;
@@ -167,56 +172,94 @@ function injectAutopilot(urlToPaste, langCode, Translations, docName) {
     // === Fase final: ilide.info viewer ===
     if (currentUrl.includes('ilide.info')) {
         updateStatusUI(3, T.analyzing.title, T.analyzing.desc, "wait");
-        let attempts = 0; let found = false;
+
+        let attempts = 0;
+        let found = false;
+        // Máximo 45 intentos × 1s = 45 segundos de espera
+        const MAX_ILIDE_ATTEMPTS = 45;
+
         const checkIframe = setInterval(() => {
             if (found) { clearInterval(checkIframe); return; }
             attempts++;
-            const viewerFrame = document.querySelector('iframe[src*="viewer.html"]');
-            const errorWrapper = document.querySelector('#errorContainer');
-            if (errorWrapper && errorWrapper.offsetParent !== null) {
+
+            // Detectar error explícito del visor antes que nada
+            const errorWrapper = document.querySelector('#errorContainer, .error-container, [class*="error"]');
+            if (errorWrapper && errorWrapper.offsetParent !== null && errorWrapper.innerText?.trim()) {
                 clearInterval(checkIframe); found = true;
-                updateStatusUI(4, T.error_detected.title, T.error_detected.desc, "error");
+                updateStatusUI(4, T.error_detected.title, T.error_detected.desc, "error", T.error_detected.help);
                 return;
             }
+
+            const viewerFrame = document.querySelector('iframe[src*="viewer.html"]');
             if (viewerFrame) {
                 try {
                     const urlParam = new URL(viewerFrame.src).searchParams.get('file');
                     if (urlParam) {
-                        found = true; clearInterval(checkIframe);
+                        found = true;
+                        clearInterval(checkIframe);
                         const directPdfUrl = decodeURIComponent(urlParam);
+
+                        // Verificar que la URL apunta a algo con extensión PDF o es una URL de descarga válida
+                        const looksPdf = /\.pdf(\?|$)/i.test(directPdfUrl) || directPdfUrl.includes('download');
+                        if (!looksPdf) {
+                            updateStatusUI(4, T.error_damaged.title, T.error_damaged.desc, "error", T.error_damaged.help);
+                            return;
+                        }
+
                         updateStatusUI(3, T.validating.title, T.validating.desc, "wait");
                         chrome.runtime.sendMessage({ action: "validate_download", url: directPdfUrl, docName }, (r) => {
-                            if (r?.valid) { updateStatusUI(4, T.success.title, T.success.desc, "success"); }
-                            else { updateStatusUI(4, T.error_damaged.title, T.error_damaged.desc, "error", T.error_damaged.help); }
+                            if (r?.valid) {
+                                updateStatusUI(4, T.success.title, T.success.desc, "success");
+                            } else {
+                                updateStatusUI(4, T.error_damaged.title, T.error_damaged.desc, "error", T.error_damaged.help);
+                            }
                         });
                         return;
                     }
-                } catch (e) { }
+                } catch (e) { /* URL malformada — seguir esperando */ }
             }
-            if (attempts > 30) { clearInterval(checkIframe); if (!found) updateStatusUI(4, T.error_timeout.title, T.error_timeout.desc, "error", T.error_damaged.help); }
+
+            if (attempts >= MAX_ILIDE_ATTEMPTS && !found) {
+                clearInterval(checkIframe);
+                updateStatusUI(4, T.error_timeout.title, T.error_timeout.desc, "error", T.error_damaged.help);
+            }
         }, 1000);
         return;
     }
 
-    // === Fase de espera ===
+    // === Fase de espera del link en vDownloaders ===
     const bodyText = document.body.innerText || "";
     const isWaitPage = bodyText.includes('Please wait a moment') || bodyText.includes('ready in');
     const finalLink = document.getElementById('btn-download');
 
     if (isWaitPage || finalLink?.href?.includes('ilide')) {
         updateStatusUI(3, T.wait.title, T.wait.desc, "wait");
+
+        let waitTicks = 0;
+        // Máximo 90s esperando el link de descarga antes de avisar amablemente
+        const MAX_WAIT_TICKS = 180; // 180 × 500ms = 90s
+
         const checkTimer = setInterval(() => {
+            waitTicks++;
             const link = document.getElementById('btn-download');
             if (link?.href?.includes('ilide')) {
                 clearInterval(checkTimer);
                 updateStatusUI(3, T.redirect.title, T.redirect.desc, "success");
-                link.target = "_self"; link.removeAttribute('rel'); window.location.href = link.href;
+                link.target = "_self";
+                link.removeAttribute('rel');
+                window.location.href = link.href;
+                return;
+            }
+            if (waitTicks >= MAX_WAIT_TICKS) {
+                clearInterval(checkTimer);
+                // No mostramos error crítico — es más un "aviso tranquilo"
+                updateStatusUI(3, T.wait_timeout.title, T.wait_timeout.desc, "wait", T.wait_timeout.help);
             }
         }, 500);
         return;
     }
 
-    // === Fase 1: formulario URL ===
+    // === Fase 1: formulario de URL ===
     const input = document.getElementById('url') || document.querySelector('input[name="url"]');
     const stage1Btn = document.querySelector('button[type="submit"].btn-primary');
 
@@ -238,16 +281,30 @@ function injectAutopilot(urlToPaste, langCode, Translations, docName) {
     if (downloadBtn && !input) {
         if (cloudflareBox && cloudflareBox.offsetParent !== null) {
             updateStatusUI(2, T.verify.title, T.verify.desc, "wait");
+
+            let cfTicks = 0;
+            // Si Cloudflare no resuelve en 45s → pedir ayuda manual
+            const MAX_CF_TICKS = 56; // 56 × 800ms ≈ 45s
+            let cfManualShown = false;
+
             const checkLoop = setInterval(() => {
+                cfTicks++;
                 const responseInput = document.querySelector('[name="cf-turnstile-response"]');
                 if (responseInput?.value) {
                     clearInterval(checkLoop);
                     updateStatusUI(2, T.verify_done.title, T.verify_done.desc, "success");
                     setTimeout(() => downloadBtn.click(), 500);
+                    return;
+                }
+                // Después de ~45s sin resolución, mostrar aviso amigable (solo una vez)
+                if (cfTicks >= MAX_CF_TICKS && !cfManualShown) {
+                    cfManualShown = true;
+                    // Seguimos el intervalo activo por si el usuario completa el captcha después
+                    updateStatusUI(2, T.verify_manual.title, T.verify_manual.desc, "manual", T.verify_manual.help);
                 }
             }, 800);
         } else {
-            updateStatusUI(2, T.direct.title, T.direct.desc, "success");
+            updateStatusUI(2, T.verify_done.title, T.verify_done.desc, "success");
             setTimeout(() => downloadBtn.click(), 1000);
         }
     }

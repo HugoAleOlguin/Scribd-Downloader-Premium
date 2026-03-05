@@ -24,14 +24,24 @@ const I18n = {
             pages: "Páginas:",
             analyzing: "Contando páginas...",
             activate: "Ir al modo de descarga",
+            // Modo Escaneo 1: Alta Calidad (strip-stitch)
+            hq_quality_btn: "Alta Calidad",
+            hq_quality_sub: "Máxima nitidez",
+            hq_quality_badge: "RECOMENDADO",
+            hq_quality_tooltip: "Captura la página en máxima resolución y las une. Produce la imagen más nítida posible, aunque en algunas resoluciones de pantalla puede quedar un corte muy sutil entre franjas.",
+            // Modo Escaneo 2: Sin Cortes (zoom-fit)
+            hq_fit_btn: "Sin Cortes",
+            hq_fit_sub: "Menos nitidez",
+            hq_fit_badge: "COMPATIBLE",
+            hq_fit_tooltip: "Hace zoom para que toda la página quepa en pantalla y toma una única foto. No hay cortes en ningún caso, aunque la imagen tiene algo menos de resolución que el modo Alta Calidad.",
             // Botón principal: escaneo HQ página a página
-            hq_btn: "Escaneo Premium (Alta Calidad)",
+            hq_btn: "Escaneo Premium (Buena Calidad)",
             hq_badge: "RECOMENDADO",
             hq_tooltip: "Captura cada página como imagen de máxima resolución y genera un PDF completo. Tarda unos minutos pero garantiza resultados perfectos, incluso en documentos con restricciones de descarga.",
             // Sección con la opción alternativa
             adv_opts: "Opción alternativa",
             // Botón secundario: PDF original del servidor
-            vec_btn: "Descargar PDF Original",
+            vec_btn: "Descargar PDF Original (Mejor Calidad)",
             vec_badge: "RÁPIDO",
             vec_tooltip: "Intenta obtener el PDF directamente del servidor externo. Mucho más rápido (segundos), aunque no siempre está disponible. Si falla, usa el Escaneo Premium de arriba.",
             // Aviso para documentos muy largos
@@ -105,14 +115,24 @@ const I18n = {
             pages: "Pages:",
             analyzing: "Counting pages...",
             activate: "Go to download mode",
-            // Main button: HQ page-by-page scan
-            hq_btn: "Premium Scan (High Quality)",
+            // Scan Mode 1: High Quality (strip-stitch)
+            hq_quality_btn: "High Quality",
+            hq_quality_sub: "Maximum sharpness",
+            hq_quality_badge: "RECOMMENDED",
+            hq_quality_tooltip: "Captures the page in full-resolution strips and stitches them together. Produces the sharpest image possible, though on some screen resolutions a very subtle seam may appear between strips.",
+            // Scan Mode 2: No Seams (zoom-fit)
+            hq_fit_btn: "No Seams",
+            hq_fit_sub: "Less sharpness",
+            hq_fit_badge: "COMPATIBLE",
+            hq_fit_tooltip: "Zooms out so the entire page fits on screen and takes a single screenshot. No seams in any case, though the image has slightly less resolution than High Quality mode.",
+            // Main button: HQ page-by-page scan (used in large-doc banner)
+            hq_btn: "Premium Scan (Good Quality)",
             hq_badge: "RECOMMENDED",
             hq_tooltip: "Captures each page as a full-resolution image and assembles the complete PDF. Takes a few minutes but delivers perfect results, even on documents with download restrictions.",
             // Alternative option section
             adv_opts: "Alternative option",
             // Secondary button: original PDF from server
-            vec_btn: "Download Original PDF",
+            vec_btn: "Download Original PDF (Best Quality)",
             vec_badge: "FAST",
             vec_tooltip: "Tries to get the PDF directly from an external server. Much faster (seconds), though not always available. If it fails, use the Premium Scan above.",
             // Warning for very long documents
