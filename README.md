@@ -5,14 +5,14 @@
 **Save and back up Scribd documents directly from your browser.**  
 No external accounts. No third-party servers. Everything runs 100% locally on your machine.
 
-[![Version](https://img.shields.io/badge/version-2.7.0-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
-[![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
-[![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
+[![Version](https://img.shields.io/badge/version-2.7.0-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.8.0)
+[![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.8.0)
+[![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.8.0)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE.md)
 
 <br/>
 
-[![Download](https://img.shields.io/badge/⬇️_Download_v2.7.0-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
+[![Download](https://img.shields.io/badge/⬇️_Download_v2.7.0-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.8.0)
 
 🌐 [Leer en Español](README-español.md)
 
@@ -43,7 +43,7 @@ Don't worry — it's easier than it looks! Just follow these three steps.
 
 Click the button below to download the latest release as a ZIP file:
 
-[![Download](https://img.shields.io/badge/⬇️_Download_v2.7.0-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
+[![Download](https://img.shields.io/badge/⬇️_Download_v2.7.0-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.8.0)
 
 Once downloaded, **extract (unzip) the folder** to a permanent location on your computer. For example:
 
