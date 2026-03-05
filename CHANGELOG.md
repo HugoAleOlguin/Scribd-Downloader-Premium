@@ -1,5 +1,33 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.8.0] - 2026-03-05: **Dual Scan Mode + UI Polish**
+
+### ✨ Nuevas Funcionalidades
+
+- **Dos modos de escaneo HQ**: El botón único de escaneo se reemplaza por dos opciones claras:
+  - **Alta Calidad** *(recomendado)*: captura en franja a máxima resolución (strip-stitch). La imagen más nítida posible; puede presentar un corte sutil entre franjas en pantallas con DPR no entero.
+  - **Sin Cortes** *(compatible)*: hace zoom-out para que la página entera quepa en el viewport y toma un único screenshot. Sin cortes garantizados en cualquier resolución y navegador; imagen algo menos grande en el PDF.
+- **UI de selección intuitiva**: cada modo muestra título, subtítulo descriptivo y badge, con tooltip explicativo al hacer hover. Al elegir un modo el otro se atenúa visualmente.
+
+### 🐛 Bug Fixes
+
+- **Fix principal — cortes en HQ Scan**: Reemplazado el `setTimeout(380)` fijo por `waitImagesLoaded()`, que espera el evento `load`/`error` de cada `<img>` visible antes de capturar. Eliminó los cortes aleatorios causados por el lazy-render asíncrono de Scribd.
+- **Fix scroll timing**: Añadido `waitScrollStable()` basado en `requestAnimationFrame` para detectar cuándo el scroll terminó físicamente (agnóstico al navegador), reemplazando el timeout ciego anterior.
+- **Fix Firefox — "Attempting to use a disconnected port object"**: El `setInterval` de keepalive ahora envuelve `port.postMessage` en `try-catch`. Si Firefox cierra el puerto antes de que el intervalo se limpie, el error se absorbe silenciosamente y el intervalo se cancela.
+
+### 🎨 UI / UX
+
+- **Branding Premium restaurado**: Título `⚡ Scribd Premium`, badges `RECOMENDADO` / `RÁPIDO`, tooltips más descriptivos.
+- **Botones con dos líneas**: título grande + subtítulo en muted para transmitir la diferencia entre modos sin abrumar.
+- **`updateState` / `updateProgress` adaptativos**: detectan el botón activo por la clase `.sdl-scanning` en lugar de un ID fijo, funcionando con cualquier numero de botones.
+- **Popup**: versión `2.8.0`, subtítulo "Descargador de documentos", link GitHub apunta al repo correcto.
+
+### 🔖 Versión
+
+- Bump a `2.8.0` en manifiestos Chrome/Firefox, headers JSDoc, popup y `i18n.js`.
+
+---
+
 ## [2.7.0] - 2026-02-27: **Firefox HQ Scan Fix**
 
 ### 🐛 Bug Fix
