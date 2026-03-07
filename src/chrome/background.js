@@ -76,6 +76,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
+    if (request.action === "download_pdf") {
+        try {
+            const safeFilename = request.filename.replace(/[^a-z0-9\s\-_\u00C0-\u00FF\.]/gi, '').trim().replace(/\s+/g, '_');
+            chrome.downloads.download({
+                url: request.url,
+                filename: safeFilename,
+                saveAs: false
+            }, (downloadId) => {
+                if (chrome.runtime.lastError) sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                else sendResponse({ success: true, id: downloadId });
+            });
+        } catch (e) {
+            sendResponse({ success: false, error: e.message });
+        }
+        return true;
+    }
+
     if (request.action === "open_external_downloader") {
         const targetUrl = "https://scribd.vdownloaders.com/";
         chrome.tabs.create({ url: targetUrl }, async (newTab) => {

@@ -459,25 +459,18 @@ async function executeHQScan(mode = 'quality') {
     Interface.updateState('saving', T.saving);
 
     try {
-      const blob = pdf.output('blob');
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `${fname}.pdf`;
-      document.body.appendChild(a);
+      const b64 = pdf.output('datauristring');
+      console.log("[Native-Debug] Enviando payload a background para descargar con chrome.downloads API.");
+      const downloadCmd = await Utils.sendMessageAsync({ action: 'download_pdf', url: b64, filename: `${fname}.pdf` });
 
-      // Emitimos un evento estricto sin burbujeo para evadir los event listeners globales de Scribd
-      // que podrían interceptar y corromper la descarga bloqueando el filename en Chrome.
-      const evt = new MouseEvent('click', { bubbles: false, cancelable: false });
-      a.dispatchEvent(evt);
-
-      setTimeout(() => {
-        a.remove();
-        URL.revokeObjectURL(url);
-      }, 5000);
+      if (!downloadCmd || !downloadCmd.success) {
+        console.warn("[Native-Debug] Descarga nativa vía background falló. Fallback clásico de jsPDF.", downloadCmd?.error);
+        pdf.save(`${fname}.pdf`);
+      } else {
+        console.log("[Native-Debug] Background confirmó el envío de descarga:", downloadCmd.id);
+      }
     } catch (saveErr) {
-      console.warn("[Native-Debug] Fallback a pdf.save() nativo por error:", saveErr);
+      console.error("[Native-Debug] Fallback a pdf.save() nativo por error crítico:", saveErr);
       pdf.save(`${fname}.pdf`);
     }
 

@@ -83,6 +83,20 @@ browser.runtime.onMessage.addListener(async (request, sender) => {
         }
     }
 
+    if (request.action === "download_pdf") {
+        try {
+            const safeFilename = request.filename.replace(/[^a-z0-9\s\-_\u00C0-\u00FF\.]/gi, '').trim().replace(/\s+/g, '_');
+            const downloadId = await browser.downloads.download({
+                url: request.url,
+                filename: safeFilename,
+                saveAs: false
+            });
+            return { success: true, id: downloadId };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    }
+
     if (request.action === "open_external_downloader") {
         const targetUrl = "https://scribd.vdownloaders.com/";
         const newTab = await browser.tabs.create({ url: targetUrl });
