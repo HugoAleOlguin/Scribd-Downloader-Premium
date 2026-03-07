@@ -1,5 +1,22 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
+## [2.9.0] - 2026-03-07: **Native Server Stitching & Professional Polish**
+
+### ✨ Extracción de Servidor Infalible
+- **Modo Nativo Original**: Descarga las imágenes crudas (JPG/PNG) directamente desde el repositorio de Scribd sin pasar por el motor de renderizado del navegador.
+- **Micro-fusión Inteligente (Stitching)**: Si Scribd divide una hoja gigante en múltiples fragmentos horizontales para ahorrar transferencia de datos (caso común en libros gráficos o Papercrafts), el script ahora detecta matemáticamente todos los fragmentos, calcula su escala natural vs su representación CSS y los fusiona en tiempo real en un `canvas` unificado garantizando la recuperación de la página entera y perfecta sin cortes.
+- **Temporizadores Failsafe**: Todas las cargas asíncronas (`fetch` a backgrounds y subidas en RAM) ahora corren custodiados por temporizadores (`Promise.race`), bloqueando todo riesgo de *"Congelación infinita del PC"* si un trozo de imagen local falla o es demorado por tu red.
+- **Trazabilidad Absoluta**: Integrado el modo Consola Avanzada (`[Native-Debug]`) que arroja trazas lógicas de cada fracción de la fusión o decodificación.
+
+### 🎨 UI / UX
+- **Rediseño Copywriting Técnico**: Reemplazado todo el vocabulario casual (como "Infalible" o "Mágicamente") a un tono puramente técnico, corporativo y profesional (*Óptimo*, *Escaneo Secundario*).
+- **Anti-Ilusión de caída**: El Panel de extracción (overlay) ya no se invisibiliza de pronto al activar la Extracción de Servidor. Esto previene impresiones visuales de fallo y acompaña al loader en vivo.
+
+### 🧹 Limpieza de Legacy Code
+- **Adiós "Franjas" (HQ)**: El modo antiguo de Capturar pantalla haciendo scroll a saltos verticales quedó oficialmente deprecado, sacando más de 100 líneas redundantes y delegando responsabilidades a lo nativo.
+
+---
+
 ## [2.8.0] - 2026-03-05: **Dual Scan Mode + UI Polish**
 
 ### ✨ Nuevas Funcionalidades
