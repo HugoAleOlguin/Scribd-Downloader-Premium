@@ -1,7 +1,7 @@
 /**
  * Scribd Premium Downloader
  * Content Script with i18n
- * @version 2.7.0
+ * @version 2.9.0
  */
 
 // I18n loaded from libs/i18n.js
@@ -105,16 +105,9 @@ const PDFHandler = {
           let sx = rect.x * dpr, sy = rect.y * dpr, sw = rect.width * dpr, sh = rect.height * dpr;
           canvas.width = sw; canvas.height = sh;
           ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-          const A4_W = 595.28; const A4_H = 841.89;
-          doc.addPage([A4_W, A4_H]);
-          const scale = (A4_W - 20) / sw; const printH = sh * scale; const printW = A4_W - 20;
-          if (printH <= A4_H) {
-            const posY = (A4_H - printH) / 2;
-            doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, posY, printW, printH, undefined, 'SLOW');
-          } else {
-            const scaleH = (A4_H - 20) / sh; const printW_H = sw * scaleH; const posX = (A4_W - printW_H) / 2;
-            doc.addImage(canvas.toDataURL('image/png'), 'PNG', posX, 10, printW_H, A4_H - 20, undefined, 'SLOW');
-          }
+
+          doc.addPage([sw, sh]);
+          doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, sw, sh, undefined, 'FAST');
           resolve();
         } catch (err) { reject(err); }
       };
@@ -127,17 +120,15 @@ const PDFHandler = {
   addPageFromCanvas: (doc, dataUrl, rect) => {
     return new Promise((resolve, reject) => {
       try {
-        const A4_W = 595.28; const A4_H = 841.89;
-        doc.addPage([A4_W, A4_H]);
         const sw = rect.width; const sh = rect.height;
-        const scale = (A4_W - 20) / sw; const printH = sh * scale; const printW = A4_W - 20;
-        if (printH <= A4_H) {
-          const posY = (A4_H - printH) / 2;
-          doc.addImage(dataUrl, 'PNG', 10, posY, printW, printH, undefined, 'SLOW');
-        } else {
-          const scaleH = (A4_H - 20) / sh; const printW_H = sw * scaleH; const posX = (A4_W - printW_H) / 2;
-          doc.addImage(dataUrl, 'PNG', posX, 10, printW_H, A4_H - 20, undefined, 'SLOW');
-        }
+        doc.addPage([sw, sh]);
+
+        let format = undefined;
+        if (dataUrl.startsWith('data:image/jpeg')) format = 'JPEG';
+        else if (dataUrl.startsWith('data:image/png')) format = 'PNG';
+        else if (dataUrl.startsWith('data:image/webp')) format = 'WEBP';
+
+        doc.addImage(dataUrl, format, 0, 0, sw, sh, undefined, 'FAST');
         resolve();
       } catch (err) { reject(err); }
     });
@@ -223,14 +214,6 @@ async function executeHQScan(mode = 'quality') {
 
     const fname = Utils.getCleanFilename();
 
-    // Dividimos en lotes para evitar "invalid string length" en documentos grandes.
-    // El motor V8 tiene un límite ~512 MB para strings; acumular cientos de páginas
-    // en PNG dentro de un único jsPDF lo supera. Guardamos un PDF por lote y
-    // dejamos que el GC libere memoria entre lotes.
-    const PAGES_PER_CHUNK = 100;
-    const totalChunks = Math.ceil(total / PAGES_PER_CHUNK);
-    const needsChunking = totalChunks > 1;
-
     // Encontramos el contenedor de scroll de las páginas una sola vez.
     // overflow:hidden no impide el scroll programático (scrollTop sigue funcionando).
     const scrollContainer = (() => {
@@ -243,195 +226,230 @@ async function executeHQScan(mode = 'quality') {
       return document.scrollingElement || document.documentElement;
     })();
 
-    for (let chunk = 0; chunk < totalChunks; chunk++) {
-      const chunkStart = chunk * PAGES_PER_CHUNK;
-      const chunkEnd = Math.min(chunkStart + PAGES_PER_CHUNK, total);
-      const chunkLabel = needsChunking ? ` (parte ${chunk + 1}/${totalChunks})` : '';
+    // Ya no dividimos en lotes por pedido del usuario. Documento completo.
+    const pdf = PDFHandler.init();
 
-      // Nuevo documento por lote → se libera al llamar pdf.save()
-      const pdf = PDFHandler.init();
+    // --- PAUSE SI LA PESTAÑA NO ESTÁ VISIBLE ---
+    // Previene capturar la pestaña equivocada o colgar procesos de fondo
+    const ensureVisible = async () => {
+      if (!document.hidden) return;
+      const prevBtn = document.querySelector('#sdl-overlay .sdl-scanning');
+      const titleEl = prevBtn ? (prevBtn.querySelector('.sdl-btn-title') || prevBtn.querySelector('span:first-child')) : null;
+      const prevText = titleEl ? titleEl.innerText : T.loading;
 
-      for (let i = chunkStart; i < chunkEnd; i++) {
-        const page = pages[i];
+      Interface.updateState('loading', '⚠️ PAUSA - ¡Vuelve a esta pestaña!');
+      document.title = "⚠️ PAUSA - Vuelve a la pestaña";
 
-        // Medimos siempre las dimensiones reales a zoom 100%.
-        // Esto garantiza que el canvas tenga las dimensiones correctas
-        // y que addPageFromCanvas calcule bien el layout en A4.
-        resetZoom();
-        page.scrollIntoView({ behavior: 'instant', block: 'start' });
-        await new Promise(r => setTimeout(r, 900));
+      await new Promise(resolve => {
+        const handler = () => {
+          if (!document.hidden) {
+            document.removeEventListener('visibilitychange', handler);
+            resolve();
+          }
+        };
+        document.addEventListener('visibilitychange', handler);
+      });
 
-        const dpr = window.devicePixelRatio || 1;
-        const vh = window.innerHeight;
+      document.title = fname ? fname.substring(0, 20) : "Scribd Premium";
+      Interface.updateState('loading', prevText);
+      await new Promise(r => setTimeout(r, 600)); // tiempo para reflow/re-render
+    };
 
-        const firstRect = page.getBoundingClientRect();
-        const pageW = firstRect.width;
-        const pageH = firstRect.height;
+    for (let i = 0; i < total; i++) {
+      const page = pages[i];
 
-        const overlay = document.getElementById('sdl-overlay');
-        if (overlay) overlay.style.display = 'none';
-        await new Promise(r => setTimeout(r, 100));
+      // Medimos siempre las dimensiones reales a zoom 100%.
+      // Esto garantiza que el canvas tenga las dimensiones correctas
+      // y que addPageFromCanvas calcule bien el layout en A4.
+      resetZoom();
+      page.scrollIntoView({ behavior: 'instant', block: 'start' });
+      await new Promise(r => setTimeout(r, 900));
 
-        // Espera a que las <img> visibles terminen de cargar antes de capturar.
-        // Scribd lazy-carga el contenido al scrollear; sin esta espera el PDF
-        // puede tener zonas en blanco o con calidad baja que parecen cortes.
-        const waitImagesLoaded = () => new Promise(resolve => {
-          const imgs = Array.from(page.querySelectorAll('img'))
-            .filter(img => {
-              const r = img.getBoundingClientRect();
-              return r.top < window.innerHeight && r.bottom > 0 && r.width > 4;
-            });
-          const pending = imgs.filter(img => !img.complete);
-          if (!pending.length) { requestAnimationFrame(resolve); return; }
-          let done = 0;
-          const onDone = () => { if (++done >= pending.length) resolve(); };
-          pending.forEach(img => {
-            img.addEventListener('load', onDone, { once: true });
-            img.addEventListener('error', onDone, { once: true });
+      const dpr = window.devicePixelRatio || 1;
+      const vh = window.innerHeight;
+
+      const firstRect = page.getBoundingClientRect();
+      let pageW = firstRect.width;
+      let pageH = firstRect.height;
+
+      const overlay = document.getElementById('sdl-overlay');
+      // No ocultamos la interfaz en modo nativo
+      if (overlay && mode !== 'native') overlay.style.display = 'none';
+      if (mode !== 'native') await new Promise(r => setTimeout(r, 100));
+
+      await ensureVisible(); // Siempre asegurarse de que la pestaña está activa antes de iniciar trabajo pesado
+      console.log(`[Native-Debug] ------- PÁGINA ${i + 1} START -------`);
+
+      // Espera a que las <img> visibles terminen de cargar antes de capturar.
+      // Scribd lazy-carga el contenido al scrollear; sin esta espera el PDF
+      // puede tener zonas en blanco o con calidad baja que parecen cortes.
+      const waitImagesLoaded = () => new Promise(resolve => {
+        const imgs = Array.from(page.querySelectorAll('img'))
+          .filter(img => {
+            const r = img.getBoundingClientRect();
+            return r.top < window.innerHeight && r.bottom > 0 && r.width > 4;
           });
-          setTimeout(resolve, 2000); // fallback: capturar igual si tarda demasiado
+        const pending = imgs.filter(img => !img.complete);
+        if (!pending.length) { requestAnimationFrame(resolve); return; }
+        let done = 0;
+        const onDone = () => { if (++done >= pending.length) resolve(); };
+        pending.forEach(img => {
+          img.addEventListener('load', onDone, { once: true });
+          img.addEventListener('error', onDone, { once: true });
         });
+        setTimeout(resolve, 2000); // fallback: capturar igual si tarda demasiado
+      });
 
-        let dataUrl;
+      let dataUrl;
+      let currentMode = mode;
 
-        if (mode === 'quality') {
-          // ── Modo Alta Calidad: strip-stitch ──────────────────────────────
-          // Captura la página en franjas verticales y las une en un canvas.
-          // Máxima resolución, aunque puede quedar un corte sutil entre franjas
-          // en pantallas con DPR no entero (1.25x, 1.5x) o lazy-render lento.
+      // En modo nativo, si la página tiene textos superpuestos o hay múltiples fragmentos de imágenes,
+      // la descargamos tomando una captura "zoom-fit" (Escaneo Secundario puro)
+      // para no perder información selectiva y conseguir siempre un layout 1 a 1 de primer nivel.
+      if (currentMode === 'native') {
+        const imgEls = Array.from(page.querySelectorAll('img.absimg, img[src*="html.scribdassets"], img.orig_image'));
+        const hasTextOverlays = page.querySelectorAll('.text_layer, .textLayer, span.text_content, span').length > 0;
 
-          const fullCanvas = document.createElement('canvas');
-          fullCanvas.width = Math.round(pageW * dpr);
-          fullCanvas.height = Math.round(pageH * dpr);
-          const ctx = fullCanvas.getContext('2d');
-
-          const STRIP_OVERLAP = 40; // px CSS de solapamiento entre franjas
-          const STABLE_FRAMES = 3;  // frames sin cambio = scroll físicamente quieto
-
-          // Espera a que scrollTop deje de cambiar durante N frames consecutivos.
-          const waitScrollStable = () => new Promise(resolve => {
-            let prev = scrollContainer.scrollTop;
-            let stableCount = 0;
-            const check = () => requestAnimationFrame(() => {
-              const cur = scrollContainer.scrollTop;
-              if (cur === prev) {
-                if (++stableCount >= STABLE_FRAMES) requestAnimationFrame(resolve);
-                else check();
-              } else { prev = cur; stableCount = 0; check(); }
-            });
-            requestAnimationFrame(check);
-          });
-
-          let capturedH = 0;
-          while (capturedH < pageH) {
-            const curRect = page.getBoundingClientRect();
-            const scrolledPast = Math.max(0, -curRect.top);
-            const visibleTop = Math.max(0, curRect.top);
-            const visibleBottom = Math.min(vh, curRect.bottom);
-            const stripH = visibleBottom - visibleTop;
-
-            if (stripH <= 0) break;
-
-            const res = await Utils.sendMessageAsync({ action: 'capture_tab' });
-            if (res.success && res.image) {
-              await new Promise(resolve => {
-                const img = new Image();
-                img.onload = () => {
-                  ctx.drawImage(
-                    img,
-                    Math.round(curRect.left * dpr), Math.round(visibleTop * dpr),
-                    Math.round(pageW * dpr), Math.round(stripH * dpr),
-                    0, Math.round(scrolledPast * dpr),
-                    Math.round(pageW * dpr), Math.round(stripH * dpr)
-                  );
-                  resolve();
-                };
-                img.onerror = resolve;
-                img.src = res.image;
-              });
-            } else {
-              console.warn('[SPD] capture_tab fallido en página', i + 1, res.error);
-            }
-
-            capturedH = scrolledPast + stripH;
-            if (capturedH < pageH) {
-              scrollContainer.scrollTop += Math.max(1, Math.round(stripH - STRIP_OVERLAP));
-              await waitScrollStable();
-              await waitImagesLoaded();
-            }
-          }
-
-          dataUrl = fullCanvas.toDataURL('image/png');
-
-        } else {
-          // ── Modo Sin Cortes: zoom-fit ─────────────────────────────────────
-          // Reduce el zoom de la página para que quepa entera en el viewport
-          // y toma UN único screenshot. No hay franjas, no hay cortes.
-          // La imagen tiene menos píxeles que el modo Alta Calidad
-          // (proporcional al nivel de zoom aplicado), pero el resultado
-          // siempre es continuo sin importar la resolución de pantalla.
-
-          const zoomRatio = Math.min(1.0, (vh * 0.95) / pageH);
-          const needsZoom = zoomRatio < 1.0;
-
-          if (needsZoom) {
-            applyZoom(zoomRatio);
-            await new Promise(r => setTimeout(r, 400)); // espera el reflow del zoom
-            page.scrollIntoView({ behavior: 'instant', block: 'start' });
-            await new Promise(r => setTimeout(r, 200));
-          }
-
-          await waitImagesLoaded();
-
-          const fitRect = page.getBoundingClientRect();
-          const fitCanvas = document.createElement('canvas');
-          fitCanvas.width = Math.round(fitRect.width * dpr);
-          fitCanvas.height = Math.round(fitRect.height * dpr);
-          const fitCtx = fitCanvas.getContext('2d');
-
-          const res = await Utils.sendMessageAsync({ action: 'capture_tab' });
-          if (res.success && res.image) {
-            await new Promise(resolve => {
-              const img = new Image();
-              img.onload = () => {
-                fitCtx.drawImage(
-                  img,
-                  Math.round(fitRect.left * dpr),
-                  Math.round(Math.max(0, fitRect.top) * dpr),
-                  Math.round(fitRect.width * dpr),
-                  Math.round(fitRect.height * dpr),
-                  0, 0, fitCanvas.width, fitCanvas.height
-                );
-                resolve();
-              };
-              img.onerror = resolve;
-              img.src = res.image;
-            });
-          } else {
-            console.warn('[SPD] capture_tab fallido (fit) en página', i + 1, res.error);
-          }
-
-          if (needsZoom) resetZoom();
-
-          // Pasamos las dimensiones ORIGINALES (sin zoom) para que jsPDF
-          // calcule el layout A4 correctamente con el aspect ratio real.
-          dataUrl = fitCanvas.toDataURL('image/png');
+        if (imgEls.length !== 1 || hasTextOverlays) {
+          console.log(`[Native-Debug] Página ${i + 1}: Layout complejo detectado (Textos o Múltiples Fragmentos). Auto-fallback a Escaneo Secundario.`);
+          currentMode = 'fit';
         }
-
-        // Restaurar overlay y añadir la página al PDF (común a ambos modos)
-        if (overlay) overlay.style.display = 'flex';
-        await PDFHandler.addPageFromCanvas(pdf, dataUrl, { width: pageW, height: pageH });
-
-        const pct = Math.round(((i + 1) / total) * 100);
-        Interface.updateProgress(pct, `${i + 1}/${total}${chunkLabel}`);
       }
 
-      // Guardar el lote y dar tiempo al GC antes de iniciar el siguiente.
-      Interface.updateState('saving', T.saving + chunkLabel);
-      const partSuffix = needsChunking ? `_parte_${chunk + 1}_de_${totalChunks}` : '';
-      pdf.save(`${fname}${partSuffix}.pdf`);
-      await new Promise(r => setTimeout(r, 800));
+      if (currentMode === 'native') {
+        console.log(`[Native-Debug] Empieza procesamiento nativo de imagen única para la página ${i + 1}`);
+
+        const imgEls = Array.from(page.querySelectorAll('img.absimg, img[src*="html.scribdassets"], img.orig_image'))
+          .filter(img => img.getBoundingClientRect().width > 50 && img.getBoundingClientRect().height > 50);
+
+        if (imgEls.length > 0) {
+          const imgEl = imgEls[0];
+          if (imgEl.src && imgEl.src.startsWith('http')) {
+            console.log(`[Native-Debug] Pág ${i + 1}: Fetching URL = ${imgEl.src}`);
+            await ensureVisible();
+
+            const reqPromise = Utils.sendMessageAsync({ action: 'fetch_image', url: imgEl.src });
+            const timeoutFetch = new Promise(resolve => setTimeout(() => resolve({ success: false, error: 'TIMEOUT_EN_BACKGROUND_FETCH' }), 10000));
+
+            let req;
+            try { req = await Promise.race([reqPromise, timeoutFetch]); }
+            catch (e) { req = { success: false, error: e.message }; }
+
+            if (req && req.success && req.data) {
+              const imgLoadPromise = new Promise(r => {
+                const tmpImg = new Image();
+                let finished = false;
+                const end = () => { if (!finished) { finished = true; r(tmpImg); } };
+                tmpImg.onload = end;
+                tmpImg.onerror = end;
+                tmpImg.src = req.data;
+                setTimeout(end, 5000);
+              });
+
+              const tmpImg = await imgLoadPromise;
+              if (tmpImg && tmpImg.width > 0) {
+                dataUrl = req.data;
+                pageW = tmpImg.width;
+                pageH = tmpImg.height;
+                console.log(`[Native-Debug] Pág ${i + 1}: Nativa aplicada con éxito (${pageW}x${pageH}).`);
+              }
+            } else {
+              console.error(`[Native-Debug] Pág ${i + 1}: Falló la descarga desde background.`);
+            }
+          }
+        }
+
+        // Si falló por lo que sea
+        if (!dataUrl) {
+          console.error(`[Native-Debug] 💥 FATAL Página ${i + 1}: No hay imagen. Inyectando canvas de error rojo para visualización en el PDF.`);
+          const errCanvas = document.createElement('canvas');
+          errCanvas.width = pageW;
+          errCanvas.height = pageH;
+          const ctx = errCanvas.getContext('2d');
+          ctx.fillStyle = "#ffebee";
+          ctx.fillRect(0, 0, pageW, pageH);
+          ctx.fillStyle = "#d32f2f";
+          ctx.font = "bold 30px Arial";
+          ctx.textAlign = "center";
+          ctx.fillText(`ERROR EN PÁGINA ${i + 1}`, pageW / 2, pageH / 2 - 20);
+          dataUrl = errCanvas.toDataURL('image/png');
+        }
+      } else if (currentMode === 'fit') {
+        // ── Modo Sin Cortes: zoom-fit ─────────────────────────────────────
+        // Reduce el zoom de la página para que quepa entera en el viewport
+        // y toma UN único screenshot. No hay franjas, no hay cortes.
+        // La imagen tiene menos píxeles que el modo Alta Calidad
+        // (proporcional al nivel de zoom aplicado), pero el resultado
+        // siempre es continuo sin importar la resolución de pantalla.
+
+        const zoomRatio = Math.min(1.0, (vh * 0.95) / pageH);
+        const needsZoom = zoomRatio < 1.0;
+
+        if (needsZoom) {
+          applyZoom(zoomRatio);
+          await new Promise(r => setTimeout(r, 400)); // espera el reflow del zoom
+          page.scrollIntoView({ behavior: 'instant', block: 'start' });
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        await waitImagesLoaded();
+
+        const fitRect = page.getBoundingClientRect();
+        const fitCanvas = document.createElement('canvas');
+        fitCanvas.width = Math.round(fitRect.width * dpr);
+        fitCanvas.height = Math.round(fitRect.height * dpr);
+        const fitCtx = fitCanvas.getContext('2d');
+
+        await ensureVisible();
+        const res = await Utils.sendMessageAsync({ action: 'capture_tab' });
+        if (res.success && res.image) {
+          await new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => {
+              fitCtx.drawImage(
+                img,
+                Math.round(fitRect.left * dpr),
+                Math.round(Math.max(0, fitRect.top) * dpr),
+                Math.round(fitRect.width * dpr),
+                Math.round(fitRect.height * dpr),
+                0, 0, fitCanvas.width, fitCanvas.height
+              );
+              resolve();
+            };
+            img.onerror = resolve;
+            img.src = res.image;
+          });
+        } else {
+          console.warn('[SPD] capture_tab fallido (fit) en página', i + 1, res.error);
+        }
+
+        if (needsZoom) resetZoom();
+
+        // Pasamos las dimensiones ORIGINALES (sin zoom) para que jsPDF
+        // calcule el layout A4 correctamente con el aspect ratio real.
+        dataUrl = fitCanvas.toDataURL('image/png');
+      }
+
+      // Restaurar overlay y añadir la página al PDF (común a ambos modos)
+      if (overlay) overlay.style.display = 'flex';
+      console.log(`[Native-Debug] Pág ${i + 1}: Llamando a PDFHandler.addPageFromCanvas() con ${pageW}x${pageH}`);
+
+      try {
+        await PDFHandler.addPageFromCanvas(pdf, dataUrl, { width: pageW, height: pageH });
+        console.log(`[Native-Debug] Pág ${i + 1}: jsPDF insertó la imagen.`);
+      } catch (errPDF) {
+        console.error(`[Native-Debug] Pág ${i + 1}: EXCEPCIÓN AL AÑADIR A jsPDF:`, errPDF);
+      }
+
+      const pct = Math.round(((i + 1) / total) * 100);
+      Interface.updateProgress(pct, `${i + 1}/${total}`);
+      console.log(`[Native-Debug] ------- PÁGINA ${i + 1} END -------`);
     }
+
+    // Guardar el documento completo
+    Interface.updateState('saving', T.saving);
+    pdf.save(`${fname}.pdf`);
+    await new Promise(r => setTimeout(r, 800));
 
     Interface.updateState('success', T.success);
 
@@ -443,7 +461,7 @@ async function executeHQScan(mode = 'quality') {
     setTimeout(() => { AppState.isProcessing = false; document.getElementById('sdl-overlay')?.remove(); }, 5000);
 
   } catch (e) {
-    console.error(e);
+    console.error(`[Native-Debug] CRASH GLOBAL en executeHQScan:`, e);
     keepalivePort?.disconnect();
     resetZoom();
     document.body.style.overflow = originalOverflow || '';
@@ -586,24 +604,23 @@ const Interface = {
 
                  <div class="sdl-actions">
 
-                    <!-- Dos modos de escaneo presentados como opciones claras -->
-                    <div class="sdl-btn-container">
-                        <button id="sdl-hq-quality-btn" class="sdl-btn sdl-btn-primary sdl-btn-twoline">
+                    <!-- Modos de escaneo presentados como opciones claras -->
+                    <div class="sdl-btn-container" style="margin-bottom: 8px;">
+                        <button id="sdl-hq-native-btn" class="sdl-btn sdl-btn-primary sdl-btn-twoline" style="background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); border-color: #7c3aed;">
                             <div class="sdl-btn-body">
-                                <span class="sdl-btn-title">${T.hq_quality_btn || 'Alta Calidad'}</span>
-                                <span class="sdl-btn-sub">${T.hq_quality_sub || 'Máxima nitidez — posibles cortes sutiles'}</span>
+                                <span class="sdl-btn-title">${T.hq_native_btn || 'Alta Calidad'}</span>
+                                <span class="sdl-btn-sub">${T.hq_native_sub || 'Sustrae la original'}</span>
                             </div>
-                            <span class="sdl-badge safe">${T.hq_quality_badge || 'RECOMENDADO'}</span>
+                            <span class="sdl-badge safe" style="background: #a855f7;">${T.hq_native_badge || 'RECOMENDADO'}</span>
                         </button>
-                        <span class="sdl-tooltip">${T.hq_quality_tooltip || T.hq_tooltip}</span>
-                        ${isLargeDoc ? `<p id="sdl-hq-toast" class="sdl-hq-toast" hidden></p>` : ''}
+                        <span class="sdl-tooltip">${T.hq_native_tooltip || T.hq_tooltip}</span>
                     </div>
 
                     <div class="sdl-btn-container">
                         <button id="sdl-hq-fit-btn" class="sdl-btn sdl-btn-fit sdl-btn-twoline">
                             <div class="sdl-btn-body">
-                                <span class="sdl-btn-title">${T.hq_fit_btn || 'Sin Cortes'}</span>
-                                <span class="sdl-btn-sub">${T.hq_fit_sub || 'Sin interrupciones — imagen algo más pequeña'}</span>
+                                <span class="sdl-btn-title">${T.hq_fit_btn || 'Escaneo Secundario'}</span>
+                                <span class="sdl-btn-sub">${T.hq_fit_sub || 'Sin interrupciones'}</span>
                             </div>
                             <span class="sdl-badge">${T.hq_fit_badge || 'COMPATIBLE'}</span>
                         </button>
@@ -621,35 +638,44 @@ const Interface = {
                         <span class="sdl-tooltip">${T.vec_tooltip}</span>
                     </div>` : ''}
                 </div>
+                
+                <div id="sdl-feedback-container" style="display:none; text-align:center; margin-top:12px; font-size: 13px; color: #d1d5db; line-height: 1.4;"></div>
             `;
     }
 
     overlay.innerHTML = contentHtml;
     document.body.appendChild(overlay);
 
-    // Handlers de los dos botones de escaneo
+    // Handlers de los botones de escaneo
     const launchScan = (mode) => {
-      const activeBtn = document.getElementById(mode === 'quality' ? 'sdl-hq-quality-btn' : 'sdl-hq-fit-btn');
-      const otherBtn = document.getElementById(mode === 'quality' ? 'sdl-hq-fit-btn' : 'sdl-hq-quality-btn');
+      const btnTypes = ['native', 'fit'];
+      const activeBtn = document.getElementById(`sdl-hq-${mode}-btn`) || document.getElementById('sdl-hq-native-btn');
 
       const start = () => {
-        if (activeBtn) activeBtn.classList.add('sdl-scanning');
-        if (otherBtn) otherBtn.classList.add('sdl-btn-dimmed');
+        AppState.activeMode = mode;
+        btnTypes.forEach(m => {
+          let btn = document.getElementById(`sdl-hq-${m}-btn`);
+          if (btn) {
+            if (m === mode) btn.classList.add('sdl-scanning');
+            else btn.classList.add('sdl-btn-dimmed');
+          }
+        });
         executeHQScan(mode);
       };
 
       if (isLargeDoc) {
         const toast = document.getElementById('sdl-hq-toast');
         if (toast) { toast.textContent = T.hq_long_warning; toast.hidden = false; }
-        setTimeout(start, 1800);
+        // Se quitó el timeout artificial 
+        start();
       } else {
         start();
       }
     };
 
-    const qualityBtn = document.getElementById('sdl-hq-quality-btn');
+    const nativeBtn = document.getElementById('sdl-hq-native-btn');
     const fitBtn = document.getElementById('sdl-hq-fit-btn');
-    if (qualityBtn) qualityBtn.onclick = () => launchScan('quality');
+    if (nativeBtn) nativeBtn.onclick = () => launchScan('native');
     if (fitBtn) fitBtn.onclick = () => launchScan('fit');
 
     // Botón de la vista no-embed (redirect a embed)
@@ -697,21 +723,52 @@ const Interface = {
 
   updateState: (state, text) => {
     // Buscamos el botón activo por la clase .sdl-scanning que se asigna al lanzar.
-    // Fallback a los IDs concretos para mantener compatibilidad.
     const btn = document.querySelector('#sdl-overlay .sdl-scanning')
-      || document.getElementById('sdl-hq-quality-btn')
+      || document.getElementById('sdl-hq-native-btn')
       || document.getElementById('sdl-action-btn');
     if (!btn) return;
     const titleEl = btn.querySelector('.sdl-btn-title') || btn.querySelector('span:first-child');
     if (titleEl) titleEl.innerText = text;
-    if (state === 'loading') { btn.disabled = true; btn.style.cursor = 'wait'; }
-    if (state === 'error') { btn.style.background = '#ef4444'; btn.disabled = false; btn.style.cursor = 'pointer'; }
-    if (state === 'success') { btn.style.background = '#22c55e'; btn.classList.add('sdl-pulse-success'); btn.disabled = true; }
+
+    const feedback = document.getElementById('sdl-feedback-container');
+    const I18nSafe = window.I18n || { es: { overlay: {} }, en: { overlay: {} } };
+    const T = (I18nSafe[AppState.language] && I18nSafe[AppState.language].overlay) ? I18nSafe[AppState.language].overlay : I18nSafe.es.overlay;
+
+    if (state === 'loading') {
+      btn.disabled = true; btn.style.cursor = 'wait';
+      if (feedback && AppState.activeMode === 'native') {
+        feedback.style.display = 'block';
+        feedback.innerHTML = `
+          <img src="https://i.ibb.co/JFt5vNL0/let-him-cook.jpg" style="width:100%; max-width:85px; border-radius:6px; margin-bottom: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 2px solid rgba(255,255,255,0.1);" alt="Let him cook">
+          <div style="font-weight:600; color:#fff; margin-bottom:4px;">${T.feedback_pause || '⚠️ Manten la pestaña abierta'}</div>
+          <div style="opacity:0.8; font-size:12px;">${T.feedback_desc || 'Asegúrate de no cerrar esta de fondo hasta que termine el proceso.'}</div>
+        `;
+      }
+    }
+    if (state === 'error') {
+      btn.style.background = '#ef4444'; btn.disabled = false; btn.style.cursor = 'pointer';
+      if (feedback && AppState.activeMode === 'native') {
+        feedback.style.display = 'block';
+        feedback.style.background = 'rgba(239, 68, 68, 0.1)';
+        feedback.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        feedback.style.padding = '10px';
+        feedback.style.borderRadius = '8px';
+        feedback.innerHTML = `
+            <div style="color:#f87171; font-weight:600; margin-bottom:6px;">${T.feedback_err_title || '⚠️ La extracción se interrumpió'}</div>
+            <div style="margin-bottom:8px; opacity:0.9;">${T.feedback_err_desc || 'Vuelve a intentarlo asegurándote de no cerrar la pestaña.'}</div>
+            <div style="font-size:12px;">${T.feedback_err_help || 'Si el problema persiste: <a href="https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/issues" style="color:#60a5fa;" target="_blank">Repórtelo en Github</a>'}</div>
+         `;
+      }
+    }
+    if (state === 'success') {
+      btn.style.background = '#22c55e'; btn.classList.add('sdl-pulse-success'); btn.disabled = true;
+      if (feedback) feedback.style.display = 'none';
+    }
   },
   updateProgress: (percent, text) => {
     const fill = document.getElementById('sdl-progress-fill');
     const btn = document.querySelector('#sdl-overlay .sdl-scanning')
-      || document.getElementById('sdl-hq-quality-btn')
+      || document.getElementById('sdl-hq-native-btn')
       || document.getElementById('sdl-action-btn');
     if (fill) fill.style.width = `${percent}%`;
     if (text && btn) {
