@@ -1,19 +1,18 @@
 # 📄 CHANGELOG (Evolución del Proyecto)
 
-## [2.9.0] - 2026-03-07: **Native Server Stitching & Professional Polish**
+## [2.9.0] - 2026-03-07: **Hybrid Extraction & Bulletproof Downloads**
 
-### ✨ Extracción de Servidor Infalible
-- **Modo Nativo Original**: Descarga las imágenes crudas (JPG/PNG) directamente desde el repositorio de Scribd sin pasar por el motor de renderizado del navegador.
-- **Micro-fusión Inteligente (Stitching)**: Si Scribd divide una hoja gigante en múltiples fragmentos horizontales para ahorrar transferencia de datos (caso común en libros gráficos o Papercrafts), el script ahora detecta matemáticamente todos los fragmentos, calcula su escala natural vs su representación CSS y los fusiona en tiempo real en un `canvas` unificado garantizando la recuperación de la página entera y perfecta sin cortes.
-- **Temporizadores Failsafe**: Todas las cargas asíncronas (`fetch` a backgrounds y subidas en RAM) ahora corren custodiados por temporizadores (`Promise.race`), bloqueando todo riesgo de *"Congelación infinita del PC"* si un trozo de imagen local falla o es demorado por tu red.
-- **Trazabilidad Absoluta**: Integrado el modo Consola Avanzada (`[Native-Debug]`) que arroja trazas lógicas de cada fracción de la fusión o decodificación.
+### ✨ Híbrido Automático (El fin de las imágenes rotas)
+- **Modo Nativo Realista**: La Extracción de Servidor ahora es hiper-inteligente. Si la página de Scribd es simple, extraerá la imagen nativa a Máxima Calidad posible por debajo del agua. Si Scribd dividió la página en "Múltiples Fragmentos" formando un rompecabezas, nuestro escaner abortará el error y pasará automáticamente la página por la lente del `Escaneo Secundario` sacando un screenshot perfecto de 1:1, asegurando que jamás vuelvas a tener una imagen mezclada o piezas faltantes.
+- **Evadiendo Extensiones Corruptas**: Eliminada la antigua lógica de Fusión en Canvas (Stitching) que fallaba constantemente. En vez de "adivinar" cómo se armaba la imagen, tomamos el control del renderizado visual de manera robusta.
+
+### 🛡️ Core Engine Fixes (Especial Chrome/Chromium)
+- **PDF Blob Pipeline Nativo**: Un bug silencioso en navegadores basados en Chromium causaba que, al generar "documentos grandes", el archivo descargado de 15MB viniera sin formato `.pdf` puro y con una clave UUID, por culpa de los Global Click Listeners de Scribd que bloqueaban atributos invisibles. Ahora, el script pesado codifica un Base64 y lo delega vía mensajería al **Background Script** de la Extensión. Dicho Script fuerza al PC a descargarlo a través de la Interfaz Nativa `chrome.downloads` saltando cualquier espionaje de Scribd.
+- **Sanitización Nuclear**: Nombres con saltos de línea (un clásico de embeds mal formados de Scribd) hacían colapsar el nombre de archivo en Chrome. Todo nombre ahora pasa por un poderoso Regex que limpia todo retorno de carro no visible.
 
 ### 🎨 UI / UX
-- **Rediseño Copywriting Técnico**: Reemplazado todo el vocabulario casual (como "Infalible" o "Mágicamente") a un tono puramente técnico, corporativo y profesional (*Óptimo*, *Escaneo Secundario*).
-- **Anti-Ilusión de caída**: El Panel de extracción (overlay) ya no se invisibiliza de pronto al activar la Extracción de Servidor. Esto previene impresiones visuales de fallo y acompaña al loader en vivo.
-
-### 🧹 Limpieza de Legacy Code
-- **Adiós "Franjas" (HQ)**: El modo antiguo de Capturar pantalla haciendo scroll a saltos verticales quedó oficialmente deprecado, sacando más de 100 líneas redundantes y delegando responsabilidades a lo nativo.
+- **Let Him Cook Menu**: Se agregó un mensaje Flotante centrado y bilingüe con feedback visual cuando usas el `Escaneo Premium`. Esto avisa explícitamente a los usuarios del tiempo de espera de las extracciones grandes y sugiere que no cambien de pestaña.
+- **Pausas Seguras**: El sistema ahora respeta tu memoria RAM. Implementado un detector de `visibilitychange`; si cierras la solapa de tu navegador o te vas a otra, el Escáner pasará a modo [En Pausa] para evadir bloqueos de render del navegador y continuará cuando regreses.
 
 ---
 
