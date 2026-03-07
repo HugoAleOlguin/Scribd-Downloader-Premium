@@ -303,15 +303,14 @@ async function executeHQScan(mode = 'quality') {
       let dataUrl;
       let currentMode = mode;
 
-      // En modo nativo, si la página tiene textos superpuestos o hay múltiples fragmentos de imágenes,
-      // la descargamos tomando una captura "zoom-fit" (Escaneo Secundario puro)
-      // para no perder información selectiva y conseguir siempre un layout 1 a 1 de primer nivel.
+      // En modo nativo, si hay múltiples fragmentos de imágenes temporales,
+      // descargamos tomando una captura "zoom-fit" (Escaneo Secundario automático)
+      // para no mezclar capas y conseguir el documento correcto.
       if (currentMode === 'native') {
         const imgEls = Array.from(page.querySelectorAll('img.absimg, img[src*="html.scribdassets"], img.orig_image'));
-        const hasTextOverlays = page.querySelectorAll('.text_layer, .textLayer, span.text_content, span').length > 0;
 
-        if (imgEls.length !== 1 || hasTextOverlays) {
-          console.log(`[Native-Debug] Página ${i + 1}: Layout complejo detectado (Textos o Múltiples Fragmentos). Auto-fallback a Escaneo Secundario.`);
+        if (imgEls.length > 1) {
+          console.log(`[Native-Debug] Página ${i + 1}: Layout complejo detectado (Múltiples Fragmentos = ${imgEls.length}). Auto-fallback a Escaneo Secundario.`);
           currentMode = 'fit';
         }
       }

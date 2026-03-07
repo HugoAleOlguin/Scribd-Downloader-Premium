@@ -5,14 +5,14 @@
 **Descarga y respalda documentos de Scribd directamente desde tu navegador.**  
 Sin cuentas externas. Sin servidores de terceros. 100% local.
 
-[![Versión](https://img.shields.io/badge/versión-2.7.0-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
-[![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
-[![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
+[![Versión](https://img.shields.io/badge/versión-2.9.0-0f766e?style=flat-square)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.9.0)
+[![Chrome](https://img.shields.io/badge/Chrome-✓-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.9.0)
+[![Firefox](https://img.shields.io/badge/Firefox-✓-FF7139?style=flat-square&logo=firefox&logoColor=white)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.9.0)
 [![Licencia](https://img.shields.io/badge/licencia-MIT-blue?style=flat-square)](LICENSE.md)
 
 <br/>
 
-[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.7.0-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0)
+[![Descargar](https://img.shields.io/badge/⬇️_Descargar_v2.9.0-0f766e?style=for-the-badge)](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.9.0)
 
 </div>
 
@@ -24,8 +24,9 @@ Agrega un **panel flotante** en cada documento de Scribd con dos modos de descar
 
 | Modo | Descripción | Resultado |
 |------|-------------|-----------|
-| 🖼️ **Escaneo HQ** | Captura cada página y genera un PDF | PDF imagen · Alta compatibilidad |
-| 📄 **PDF Original** | Busca y descarga el PDF vectorial del servidor | PDF con texto seleccionable |
+| ⚡ **Extraer del Servidor** | Descarga y fusiona las imágenes nativas 1:1 directo desde los servidores | PDF ultra-exacto de máxima calidad |
+| 🖼️ **Escaneo Secundario** | Captura pantalla de cada página entera para evadir caídas del servidor | PDF imagen de calidad estándar |
+| 🚀 **Descarga Externa** | Te enlaza a servicios 3ros para bajar el vector directo si existe | PDF con texto seleccionable |
 
 > ⚠️ Solo funciona con documentos publicos.
 
@@ -35,7 +36,7 @@ Agrega un **panel flotante** en cada documento de Scribd con dos modos de descar
 
 ### 1 — Descarga el proyecto
 
-[Descarga el ZIP](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.7.0) y descomprímelo en una carpeta permanente, por ejemplo:
+[Descarga el ZIP](https://github.com/HugoAleOlguin/Scribd-Downloader-Premium/releases/2.9.0) y descomprímelo en una carpeta permanente, por ejemplo:
 ```
 C:\Extensiones\scribd-downloader\
 ```
@@ -80,25 +81,26 @@ scribd-downloader/
 
 ## 🚀 Uso
 
-### Escaneo HQ ✅ (recomendado)
+### Extraer Premium ✅ (Recomendado)
+
+Este método es el más confiable, descarga matemáticamente todas las imágenes crudas de altísima calidad directamente de la fuente de datos. 
 
 ```
 1. Abre un documento en scribd.com
-2. Aparece el panel flotante de la extensión
-3. Activa el "Modo Descarga" y accede al visor
-4. Haz clic en "ESCANEO INTELIGENTE (HQ)"
-5. La extensión captura cada página automáticamente
-6. Al terminar, se descarga el PDF
+2. Aparece el panel principal de la extensión.
+3. Haz clic en "Extraer Premium" o en "Opciones Alternativas" -> "Extraer de Servidor"
+4. La extensión comenzará a inyectar las descargas dentro de tu PDF
+5. Al terminar, la descarga se iniciará automáticamente
 ```
 
-### PDF Original ⚡
+### Descarga Externa 🚀
 
 ```
-1. En el visor, haz clic en "PDF ORIGINAL"
-2. Se abre una pestaña que se controla automáticamente
-3. Espera el resultado (1-3 minutos)
-4. Si el PDF existe, la descarga inicia sola
-5. Si falla, usa el Escaneo HQ como alternativa
+1. En el panel, expande "Opciones alternativas" y haz clic en "Descarga Externa"
+2. Se abre una pestaña nueva y omite el Cloudflare por ti
+3. Espera a que el servidor de terceros provea el link (1 a 3 minutos)
+4. Si el PDF existe en sus bases de datos, inicia solo.
+5. Si detecta fallos remotos, simplemente vuelve e intenta con "Extraer Premium".
 ```
 
 ---
@@ -106,16 +108,13 @@ scribd-downloader/
 ## 🔧 Problemas comunes
 
 **El panel flotante no aparece**
-→ Recarga la página con `F5`. Si usaste el ZIP viejo, regenera con `build.ps1`.
+→ Recarga la página con `F5`. Si usaste un código muy viejo de extensión, regenera con el `build.bat` e instala de nuevo en las config. del navegador.
 
 **Firefox muestra "complemento vacío"**  
 → Asegúrate de seleccionar el `manifest.json` dentro de la carpeta `firefox/` generada, no desde otra carpeta.
 
-**El Escaneo HQ captura páginas en blanco**  
-→ El documento no terminó de cargar. Espera unos seconds y vuelve a intentarlo.
-
-**El PDF Original siempre falla**  
-→ El PDF vectorial no está disponible en el servidor externo. Usa el Escaneo HQ.
+**La Descarga Externa siempre falla**  
+→ El PDF de esa URL no está alojado en su base de datos gratuita de 3ros, o su web se cayó. Simplemente usa "Extraer Premium" del panel principal.
 
 ---
 
@@ -137,10 +136,10 @@ scribd-downloader/
 │       ├── manifest.json  ← background.scripts
 │       └── background.js  ← captureVisibleTab(windowId)
 │
-├── chrome/                ← generado por build.ps1 (no editar)
-├── firefox/               ← generado por build.ps1 (no editar)
+├── chrome/                ← generado por build.bat (no editar)
+├── firefox/               ← generado por build.bat (no editar)
 │
-└── build.ps1              ← ensambla src/ → chrome/ y firefox/
+└── build.bat              ← ensambla src/ → chrome/ y firefox/
 ```
 
 **Para desarrollar:** edita los archivos en `src/`, luego haz doble clic en `build.bat` para regenerar las carpetas instalables.
