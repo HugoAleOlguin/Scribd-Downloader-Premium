@@ -14,7 +14,7 @@ const AppState = {
   isProcessing: false,
   cachedName: null,
   cachedUrl: null,
-  language: 'es' // Default
+  language: 'en' // Default
 };
 
 // ... Utils and PDFHandler (unchanged) ...
