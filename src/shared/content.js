@@ -457,7 +457,30 @@ async function executeHQScan(mode = 'quality') {
 
     // Guardar el documento completo
     Interface.updateState('saving', T.saving);
-    pdf.save(`${fname}.pdf`);
+
+    try {
+      const blob = pdf.output('blob');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `${fname}.pdf`;
+      document.body.appendChild(a);
+
+      // Emitimos un evento estricto sin burbujeo para evadir los event listeners globales de Scribd
+      // que podrían interceptar y corromper la descarga bloqueando el filename en Chrome.
+      const evt = new MouseEvent('click', { bubbles: false, cancelable: false });
+      a.dispatchEvent(evt);
+
+      setTimeout(() => {
+        a.remove();
+        URL.revokeObjectURL(url);
+      }, 5000);
+    } catch (saveErr) {
+      console.warn("[Native-Debug] Fallback a pdf.save() nativo por error:", saveErr);
+      pdf.save(`${fname}.pdf`);
+    }
+
     await new Promise(r => setTimeout(r, 800));
 
     Interface.updateState('success', T.success);
