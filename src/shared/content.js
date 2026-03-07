@@ -59,14 +59,24 @@ const Utils = {
   },
   getCleanFilename: () => {
     try {
-      if (AppState.cachedName) return AppState.cachedName;
-      const specificTitle = document.querySelector('[data-e2e="doc_page_title"]');
-      if (specificTitle && specificTitle.innerText.trim()) return sanitizeFilename(specificTitle.innerText);
-      const embedTitle = document.querySelector('.title');
-      if (embedTitle && embedTitle.innerText.trim()) return sanitizeFilename(embedTitle.innerText);
-      let docTitle = document.title || "documento";
-      return sanitizeFilename(docTitle.replace(/\| Scribd/gi, '').replace(/Lea en línea/gi, '').replace(/Scribd/gi, ''));
-    } catch (e) { return `documento_${Date.now()}`; }
+      let result = "Scribd_Document";
+      if (AppState.cachedName) result = AppState.cachedName;
+      else {
+        const specificTitle = document.querySelector('[data-e2e="doc_page_title"]');
+        if (specificTitle && specificTitle.innerText.trim()) result = specificTitle.innerText;
+        else {
+          const embedTitle = document.querySelector('.title');
+          if (embedTitle && embedTitle.innerText.trim()) result = embedTitle.innerText;
+          else {
+            let docTitle = document.title || "";
+            result = docTitle.replace(/\| Scribd/gi, '').replace(/Lea en línea/gi, '').replace(/Scribd/gi, '');
+          }
+        }
+      }
+      result = sanitizeFilename(result);
+      if (!result) return `Scribd_Document_${Date.now()}`;
+      return result.substring(0, 120); // Prevenir error de límite de 255 caracteres en Windows
+    } catch (e) { return `Scribd_Document_${Date.now()}`; }
   },
   saveDocName: (id, name, fullUrl) => {
     if (!id) return;
@@ -471,7 +481,12 @@ async function executeHQScan(mode = 'quality') {
   }
 }
 
-function sanitizeFilename(name) { return name.replace(/[^a-z0-9\s-_\u00C0-\u00FF]/gi, '').trim().replace(/\s+/g, '_'); }
+function sanitizeFilename(name) {
+  return name.replace(/[\r\n]+/g, ' ')
+    .replace(/[^a-zA-Z0-9\s-_\u00C0-\u00FF]/g, '')
+    .trim()
+    .replace(/\s+/g, '_');
+}
 
 // --- UI Interface ---
 
