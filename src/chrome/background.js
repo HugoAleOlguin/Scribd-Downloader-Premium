@@ -53,25 +53,20 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // ── Estrategia 0: embed HTML + CSS inlineado desde scribdassets.com ────────
-    // PDFShift NO puede acceder a Scribd (IP bloqueada). Nosotros sí.
-    // Solución: fetchear el HTML del embed + sus CSS en el background,
-    // inlinearlos, y enviar un HTML autocontenido sin dependencias externas.
+    // ── Estrategia 0: HTML del embed → PDFShift (CDN accesible desde sus servidores) ──
+    // Enviamos el HTML original (247KB) sin inlinear CSS/imag.
+    // PDFShift's Chromium carga JS + CSS de s-f.scribdassets.com directamente.
+    // DocumentManager corre → renderiza bordes+estilos. La fidelidad es optima.
     if (docId) {
         try {
-            console.log('[SDL BG] Estrategia 0: embed HTML + CSS + imágenes inlineados...');
-            const cookies = await getScribdCookies();
+            console.log('[SDL BG] Estrategia 0: embed → PDFShift (CDN load)...');
+            const cookies  = await getScribdCookies();
             const rawHtml  = await fetchRawEmbed(docId);
             const stripped = stripGdprScripts(rawHtml);
-            const withCSS  = await inlineExternalCSS(stripped);
-            const withImgs = await inlinePageImages(withCSS, cookies);
-
-            // Calcular zoom para ajustar el ancho real del documento a A4
             const pageDims = extractPageDimensions(rawHtml);
             const fitZoom  = calculateFitZoom(pageDims.width);
-            console.log('[SDL BG] Page dims:', pageDims.width, 'x', pageDims.height, 'px | zoom:', fitZoom);
-
-            const prepared  = prepareEmbedHtml(withImgs, pageDims);
+            console.log('[SDL BG] Page dims:', pageDims.width + 'x' + pageDims.height, '| zoom:', fitZoom);
+            const prepared  = prepareEmbedHtml(stripped, pageDims);
             const objectUrl = await convertHtmlToPdf(prepared, false, fitZoom);
             console.log('[SDL BG] Estrategia 0 OK');
             return triggerDownload(objectUrl, `${filename}.pdf`);

@@ -43,16 +43,14 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
     // ── Estrategia 0: embed HTML + CSS inlineado desde scribdassets.com ────────
     if (docId) {
         try {
-            console.log('[SDL BG] Estrategia 0: embed HTML + CSS + imágenes inlineados...');
-            const cookies = await getScribdCookies();
+            console.log('[SDL BG] Estrategia 0: embed → PDFShift (CDN load)...');
+            const cookies  = await getScribdCookies();
             const rawHtml  = await fetchRawEmbed(docId);
             const stripped = stripGdprScripts(rawHtml);
-            const withCSS  = await inlineExternalCSS(stripped);
-            const withImgs  = await inlinePageImages(withCSS, cookies);
-            const pageDims  = extractPageDimensions(rawHtml);
-            const fitZoom   = calculateFitZoom(pageDims.width);
-            console.log('[SDL BG] Page dims:', pageDims.width + 'x' + pageDims.height + ' | zoom:', fitZoom);
-            const prepared  = prepareEmbedHtml(withImgs, pageDims);
+            const pageDims = extractPageDimensions(rawHtml);
+            const fitZoom  = calculateFitZoom(pageDims.width);
+            console.log('[SDL BG] Page dims:', pageDims.width + 'x' + pageDims.height, '| zoom:', fitZoom);
+            const prepared  = prepareEmbedHtml(stripped, pageDims);
             const objectUrl = await convertHtmlToPdf(prepared, fitZoom);
             console.log('[SDL BG] Estrategia 0 OK');
             return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
