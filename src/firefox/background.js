@@ -191,16 +191,34 @@ function stripGdprScripts(html) {
 function prepareEmbedHtml(html) {
     const overrideCSS = `<style id="sdl-overrides">
 * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-[class*="toolbar_container"], [class*="DocControls"],
-#autosave_dialog, .grecaptcha-badge { display: none !important; }
+body > div:not([data-track_category="embeds"]),
+body > header, body > footer, body > nav, body > script, #fb-root { display: none !important; }
+[data-track_category="embeds"] > div:not(.document_scroller) { display: none !important; }
+.document_scroller > div:not(.document_container) { display: none !important; }
+[class*="toolbar"], [class*="Toolbar"], [class*="ToolBar"],
+[class*="action_bar"], [class*="ActionBar"],
+[class*="EmbedHeader"], [class*="EmbedFooter"],
+[class*="share_button"], [class*="download_btn"],
+[id*="toolbar"], .bottom_toolbar, .header_container { display: none !important; }
 [class*="osano"], [id*="osano"], [class*="consent"], [id*="consent"],
 [class*="cookie"], [id*="cookie"], [class*="gdpr"], [id*="gdpr"],
 [role="dialog"][aria-modal="true"], .sp-message-container { display: none !important; }
 </style>`;
-    if (html.includes('</head>')) {
-        return html.replace('</head>', overrideCSS + '\n</head>');
-    }
-    return overrideCSS + html;
+    const cleanupScript = `<script>
+setTimeout(function() {
+    document.querySelectorAll('[class*="toolbar"], [class*="Toolbar"], ' +
+        '[class*="EmbedHeader"], [class*="EmbedFooter"], ' +
+        '[class*="action_bar"], [class*="ActionBar"]').forEach(function(el) {
+        if (!el.closest('.outer_page_container') && !el.closest('.document_container')) {
+            el.style.setProperty('display', 'none', 'important');
+        }
+    });
+}, 500);
+</script>`;
+    let result = html;
+    result = result.includes('</head>') ? result.replace('</head>', overrideCSS + '\n</head>') : overrideCSS + result;
+    result = result.includes('</body>') ? result.replace('</body>', cleanupScript + '\n</body>') : result + cleanupScript;
+    return result;
 }
 
 async function fetchRawEmbed(docId) {

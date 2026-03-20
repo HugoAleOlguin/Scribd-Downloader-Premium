@@ -471,15 +471,34 @@ function extractAccessKey(html) {
  * NO reemplaza el HTML: lo aumenta. Esto preserva toda la fidelidad visual.
  */
 function prepareEmbedHtml(html) {
+    // CSS de override: preservar colores y ocultar UI del embed.
+    // Estructura del embed: body > .auto__embeds_new_show > .document_scroller > .document_container
+    // El toolbar/header/footer de Scribd son hermanos de .document_scroller
+    // → Los ocultamos con el selector de sibling.
     const overrideCSS = `<style id="sdl-overrides">
-/* Preservar colores de fondo al imprimir/capturar */
+/* Preservar fondos/colores en la captura de PDF */
 * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 
-/* Ocultar UI de Scribd */
-[class*="toolbar_container"], [class*="DocControls"],
-#autosave_dialog, .grecaptcha-badge { display: none !important; }
+/* Ocultar todo en body excepto el wrapper del embed */
+body > div:not([data-track_category="embeds"]),
+body > header, body > footer, body > nav,
+body > script, #fb-root { display: none !important; }
 
-/* Ocultar GDPR / Osano consent overlay */
+/* Dentro del wrapper del embed, ocultar TODO excepto el document_scroller */
+[data-track_category="embeds"] > div:not(.document_scroller) { display: none !important; }
+
+/* Dentro del document_scroller, ocultar TODO excepto el document_container */
+.document_scroller > div:not(.document_container) { display: none !important; }
+
+/* Selectores adicionales por clase para elementos que React pueda renderizar */
+[class*="toolbar"], [class*="Toolbar"], [class*="ToolBar"],
+[class*="action_bar"], [class*="ActionBar"],
+[class*="EmbedHeader"], [class*="EmbedFooter"],
+[class*="share_button"], [class*="download_btn"],
+[id*="toolbar"], .bottom_toolbar, .header_container,
+[class*="ScribdIcon"], [class*="scribd_icon"] { display: none !important; }
+
+/* Ocultar GDPR overlays */
 [class*="osano"], [id*="osano"],
 [class*="consent"], [id*="consent"],
 [class*="cookie"], [id*="cookie"],
@@ -488,12 +507,31 @@ function prepareEmbedHtml(html) {
 .sp-message-container { display: none !important; }
 </style>`;
 
-    // Inyectar DESPUÉS de los CSS de Scribd (mayor especificidad)
-    if (html.includes('</head>')) {
-        return html.replace('</head>', overrideCSS + '\n</head>');
-    }
-    // Fallback: anteponer si no hay </head>
-    return overrideCSS + html;
+    // Script que corre a los 500ms para ocultar clases que React genera dinámicamente
+    const cleanupScript = `<script>
+setTimeout(function() {
+    // Ocultar cualquier UI del embed que no sea el documento
+    document.querySelectorAll('[class*="toolbar"], [class*="Toolbar"], ' +
+        '[class*="EmbedHeader"], [class*="EmbedFooter"], ' +
+        '[class*="action_bar"], [class*="ActionBar"]').forEach(function(el) {
+        // No ocultar si está dentro del visor del documento
+        if (!el.closest('.outer_page_container') && !el.closest('.document_container')) {
+            el.style.setProperty('display', 'none', 'important');
+        }
+    });
+}, 500);
+</script>`;
+
+    let result = html;
+    // Inyectar CSS antes de </head>
+    result = result.includes('</head>')
+        ? result.replace('</head>', overrideCSS + '\n</head>')
+        : overrideCSS + result;
+    // Inyectar script de limpieza antes de </body>
+    result = result.includes('</body>')
+        ? result.replace('</body>', cleanupScript + '\n</body>')
+        : result + cleanupScript;
+    return result;
 }
 
 
