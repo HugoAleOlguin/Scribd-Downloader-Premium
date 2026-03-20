@@ -24,8 +24,8 @@
 // =============================================================================
 const PDFSHIFT_CONFIG = {
     endpoint: 'https://api.pdfshift.io/v3/convert/pdf',
-    apiKey:   'TU_API_KEY_AQUI',
-    timeout:  90000
+    apiKey: 'sk_b44a585579aa75162adc2b86731707f2a3b5ef63',
+    timeout: 90000
 };
 
 // =============================================================================
@@ -35,8 +35,8 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
     if (request.action === 'generate_pdf') {
         generateAndDownload(request.url, request.filename)
-            .then(result  => sendResponse({ success: true,  ...result }))
-            .catch(error  => sendResponse({ success: false, error: error.message }));
+            .then(result => sendResponse({ success: true, ...result }))
+            .catch(error => sendResponse({ success: false, error: error.message }));
 
         // Retorna true para mantener el canal de mensaje abierto (respuesta asíncrona)
         return true;
@@ -44,8 +44,8 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
     if (request.action === 'trigger_download') {
         triggerDownload(request.url, request.filename)
-            .then(id    => sendResponse({ success: true,  id }))
-            .catch(err  => sendResponse({ success: false, error: err.message }));
+            .then(id => sendResponse({ success: true, id }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
     }
 
@@ -62,19 +62,19 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
  */
 async function generateAndDownload(url, filename) {
     const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT_CONFIG.timeout);
+    const timeoutId = setTimeout(() => controller.abort(), PDFSHIFT_CONFIG.timeout);
 
     let response;
     try {
         response = await fetch(PDFSHIFT_CONFIG.endpoint, {
-            method:  'POST',
+            method: 'POST',
             headers: {
-                'X-API-Key':    PDFSHIFT_CONFIG.apiKey,
+                'X-API-Key': PDFSHIFT_CONFIG.apiKey,
                 'Content-Type': 'application/json'
             },
             // sandbox:true → no consume créditos, incluye watermark (útil para pruebas)
             // Eliminar sandbox cuando estés listo para producción
-            body:   JSON.stringify({ source: url }),
+            body: JSON.stringify({ source: url }),
             signal: controller.signal
         });
     } finally {
@@ -87,7 +87,7 @@ async function generateAndDownload(url, filename) {
     }
 
     // PDFShift devuelve el binario del PDF directamente
-    const pdfBlob   = await response.blob();
+    const pdfBlob = await response.blob();
     const objectUrl = URL.createObjectURL(pdfBlob);
 
     const downloadId = await triggerDownload(objectUrl, `${filename}.pdf`);

@@ -8,14 +8,18 @@
 
 const PDFSHIFT_CONFIG = {
     endpoint: 'https://api.pdfshift.io/v3/convert/pdf',
-    apiKey:   'TU_API_KEY_AQUI',
-    timeout:  90000
+    apiKey: 'sk_b44a585579aa75162adc2b86731707f2a3b5ef63',
+    timeout: 90000
 };
 
 browser.runtime.onMessage.addListener((request, _sender) => {
 
     if (request.action === 'generate_pdf') {
-        return generateAndDownload(request.url, request.filename);
+        // El .catch() es obligatorio: sin él, un reject llega al content script
+        // como respuesta vacía/undefined, imposible de depurar.
+        return generateAndDownload(request.url, request.filename)
+            .then(result => ({ success: true, ...result }))
+            .catch(err   => ({ success: false, error: err.message || String(err) }));
     }
 
     if (request.action === 'trigger_download') {
@@ -23,7 +27,7 @@ browser.runtime.onMessage.addListener((request, _sender) => {
             url:      request.url,
             filename: request.filename,
             saveAs:   true
-        }).then(id => ({ success: true, id }))
+        }).then(id  => ({ success: true, id }))
           .catch(err => ({ success: false, error: err.message }));
     }
 
@@ -32,17 +36,17 @@ browser.runtime.onMessage.addListener((request, _sender) => {
 
 async function generateAndDownload(url, filename) {
     const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT_CONFIG.timeout);
+    const timeoutId = setTimeout(() => controller.abort(), PDFSHIFT_CONFIG.timeout);
 
     let response;
     try {
         response = await fetch(PDFSHIFT_CONFIG.endpoint, {
-            method:  'POST',
+            method: 'POST',
             headers: {
-                'X-API-Key':    PDFSHIFT_CONFIG.apiKey,
+                'X-API-Key': PDFSHIFT_CONFIG.apiKey,
                 'Content-Type': 'application/json'
             },
-            body:   JSON.stringify({ source: url }),
+            body: JSON.stringify({ source: url }),
             signal: controller.signal
         });
     } finally {
@@ -54,12 +58,12 @@ async function generateAndDownload(url, filename) {
         throw new Error(`PDFShift Error ${response.status}: ${errText}`);
     }
 
-    const pdfBlob   = await response.blob();
+    const pdfBlob = await response.blob();
     const objectUrl = URL.createObjectURL(pdfBlob);
 
     return browser.downloads.download({
-        url:      objectUrl,
+        url: objectUrl,
         filename: `${filename}.pdf`,
-        saveAs:   true
+        saveAs: true
     }).then(id => ({ success: true, downloadId: id }));
 }
