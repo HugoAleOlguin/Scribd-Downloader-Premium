@@ -40,33 +40,25 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // Estrategia 0: key universal
+    // ── Estrategia 0: URL del embed → PDFShift (renderizado COMPLETO en Chromium) ────
     if (docId) {
         try {
-            console.log('[SDL BG] Estrategia 0: embed con key universal...');
+            const cookies  = await getScribdCookies();
             const embedUrl = [
                 `https://www.scribd.com/embeds/${docId}/content`,
-                `?start_page=1&view_mode=scroll&show_recommendations=false`,
-                `&access_key=${encodeURIComponent(SCRIBD_UNIVERSAL_KEY)}`
+                `?start_page=1&view_mode=scroll&access_key=${SCRIBD_UNIVERSAL_KEY}`,
+                `&show_recommendations=false&jsapi=true`
             ].join('');
-            const res = await fetch(embedUrl, { headers: { ...SCRIBD_HEADERS } });
-            if (res.ok) {
-                const html = await res.text();
-                if (html.length > 5000 && !html.includes('error_page')) {
-                    console.log('[SDL BG] Estrategia 0 OK');
-                    const wrapped = prepareEmbedHtml(stripScripts(html));
-                    const objectUrl = await convertHtmlToPdf(wrapped);
-                    return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
-                        .then(id => ({ downloadId: id }));
-                }
-            }
-            console.log('[SDL BG] Estrategia 0 falló: status', res.status);
+            console.log('[SDL BG] Estrategia 0: URL embeds → PDFShift...');
+            const objectUrl = await convertUrlToPdf(embedUrl, cookies);
+            console.log('[SDL BG] Estrategia 0 OK');
+            return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
+                .then(id => ({ downloadId: id }));
         } catch (err) {
             console.log('[SDL BG] Estrategia 0 falló:', err.message);
         }
     }
 
-    // Estrategia A: access_key específico (embeds externos)
     if (docId) {
         try {
             const directUrl = await tryScribdDirectDownload(docId);
@@ -212,6 +204,39 @@ img { max-width: 100% !important; height: auto !important; display: block; }
         return html.replace('</head>', overrideCSS + '\n</head>');
     }
     return overrideCSS + html;
+}
+
+async function convertUrlToPdf(url, cookies = []) {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
+
+    const pdfCookies = cookies.map(c => ({ name: c.name, value: c.value }));
+
+    const payload = {
+        source:  url,
+        format:  'A4',
+        delay:   4000,
+        margin:  { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
+        ...(pdfCookies.length > 0 && { cookies: pdfCookies })
+    };
+
+    let response;
+    try {
+        response = await fetch(PDFSHIFT.endpoint, {
+            method:  'POST',
+            headers: { 'X-API-Key': PDFSHIFT.apiKey, 'Content-Type': 'application/json' },
+            body:    JSON.stringify(payload),
+            signal:  controller.signal
+        });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`PDFShift URL ${response.status}: ${errText}`);
+    }
+    return URL.createObjectURL(await response.blob());
 }
 
 // ─── PDFShift ─────────────────────────────────────────────────────────────
