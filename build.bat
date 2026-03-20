@@ -1,10 +1,9 @@
 @echo off
-title Scribd Premium Downloader - Constructor (Build)
-color 0B
+title Scribd Premium Downloader
 
 echo.
 echo  ======================================================
-echo     SCRIBD PREMIUM DOWNLOADER - SYSTEM BUILDER 
+echo     SCRIBD PREMIUM DOWNLOADER
 echo  ======================================================
 echo.
 echo  Iniciando proceso de compilacion y empaquetado...

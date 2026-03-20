@@ -1,46 +1,126 @@
 /**
  * Scribd Premium Downloader - Background Service Worker
- * @version 3.0.0 (Manifest V3)
+ * @version 3.1.0 (Manifest V3)
  *
- * Actúa como puente seguro entre el content script y chrome.downloads.
- * chrome.downloads no está disponible en content scripts, por eso
- * el content script delega aquí la descarga nativa.
+ * El background script es el único lugar donde se pueden hacer fetches
+ * a APIs externas sin restricciones CORS en una extensión MV3.
+ *
+ * Flujo:
+ *   content.js  →  { action: 'generate_pdf', url, filename }
+ *       ↓
+ *   background.js  →  fetch a PDFShift API
+ *       ↓
+ *   chrome.downloads.download({ url: blobUrl, filename })
  */
 
+// =============================================================================
+// CONFIGURACIÓN DE LA API
+// =============================================================================
+// Servicio: PDFShift  →  https://app.pdfshift.io
+// Plan gratuito: 50 conversiones/mes, sin tarjeta de crédito.
+// Crea tu cuenta y obtén tu API key en: https://app.pdfshift.io/dashboard/
+//
+// IMPORTANTE: Reemplaza 'TU_API_KEY_AQUI' con tu key real antes de compilar.
+// =============================================================================
+const PDFSHIFT_CONFIG = {
+    endpoint: 'https://api.pdfshift.io/v3/convert/pdf',
+    apiKey:   'TU_API_KEY_AQUI',
+    timeout:  90000
+};
+
+// =============================================================================
+// LISTENER DE MENSAJES
+// =============================================================================
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
-    // Único action soportado: iniciar una descarga con el gestor nativo del navegador
-    if (request.action === 'trigger_download') {
-        chrome.downloads.download({
-            url:    request.url,
-            filename: request.filename,
-            saveAs: true // Permite al usuario elegir la carpeta de destino
-        }, (downloadId) => {
-            if (chrome.runtime.lastError) {
-                console.error('[SDL BG] Error en descarga:', chrome.runtime.lastError.message);
-                sendResponse({ success: false, error: chrome.runtime.lastError.message });
-            } else {
-                sendResponse({ success: true, id: downloadId });
-            }
-        });
+    if (request.action === 'generate_pdf') {
+        generateAndDownload(request.url, request.filename)
+            .then(result  => sendResponse({ success: true,  ...result }))
+            .catch(error  => sendResponse({ success: false, error: error.message }));
 
-        // Retornar true mantiene el canal de mensaje abierto para la respuesta asíncrona
+        // Retorna true para mantener el canal de mensaje abierto (respuesta asíncrona)
         return true;
     }
 
-    // Respuesta por defecto para mensajes desconocidos
+    if (request.action === 'trigger_download') {
+        triggerDownload(request.url, request.filename)
+            .then(id    => sendResponse({ success: true,  id }))
+            .catch(err  => sendResponse({ success: false, error: err.message }));
+        return true;
+    }
+
     sendResponse({ success: true });
 });
 
+// =============================================================================
+// FUNCIONES PRINCIPALES
+// =============================================================================
+
 /**
- * Puerto de keepalive para evitar que el Service Worker se suspenda
- * durante operaciones largas (Chrome suspende SWs inactivos ~30s).
- * El content script puede abrir este puerto para mantener el SW activo.
+ * Llama a PDFShift, obtiene el PDF y lo descarga usando chrome.downloads.
+ * Todo ocurre aquí en el SW: sin CORS, sin restricciones de origen.
  */
-chrome.runtime.onConnect.addListener((port) => {
-    if (port.name === 'sdl-keepalive') {
-        port.onDisconnect.addListener(() => {
-            // El puerto se desconecta al terminar la operación, no se necesita lógica aquí
+async function generateAndDownload(url, filename) {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT_CONFIG.timeout);
+
+    let response;
+    try {
+        response = await fetch(PDFSHIFT_CONFIG.endpoint, {
+            method:  'POST',
+            headers: {
+                'X-API-Key':    PDFSHIFT_CONFIG.apiKey,
+                'Content-Type': 'application/json'
+            },
+            // sandbox:true → no consume créditos, incluye watermark (útil para pruebas)
+            // Eliminar sandbox cuando estés listo para producción
+            body:   JSON.stringify({ source: url }),
+            signal: controller.signal
         });
+    } finally {
+        clearTimeout(timeoutId);
     }
+
+    if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`PDFShift Error ${response.status}: ${errText}`);
+    }
+
+    // PDFShift devuelve el binario del PDF directamente
+    const pdfBlob   = await response.blob();
+    const objectUrl = URL.createObjectURL(pdfBlob);
+
+    const downloadId = await triggerDownload(objectUrl, `${filename}.pdf`);
+    return { downloadId };
+}
+
+/**
+ * Inicia una descarga nativa con chrome.downloads.
+ * Promisifica el callback para integrarse con async/await.
+ */
+function triggerDownload(url, filename) {
+    return new Promise((resolve, reject) => {
+        chrome.downloads.download({
+            url,
+            filename,
+            saveAs: true
+        }, (downloadId) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+            } else {
+                resolve(downloadId);
+            }
+        });
+    });
+}
+
+// =============================================================================
+// KEEPALIVE
+// =============================================================================
+// Chrome suspende el Service Worker ~30s tras quedar inactivo.
+// El content script puede conectarse a este puerto durante operaciones largas.
+chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== 'sdl-keepalive') return;
+    const interval = setInterval(() => port.postMessage('ping'), 20000);
+    port.onDisconnect.addListener(() => clearInterval(interval));
 });

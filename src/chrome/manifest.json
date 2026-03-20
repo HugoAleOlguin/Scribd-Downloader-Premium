@@ -10,7 +10,7 @@
   ],
   "host_permissions": [
     "*://*.scribd.com/*",
-    "https://ploi.cloud/*"
+    "https://api.pdfshift.io/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -1,29 +1,65 @@
 /**
  * Scribd Premium Downloader - Background Script (Firefox)
- * @version 3.0.0 (Manifest V3 / Firefox MV3)
+ * @version 3.1.0 (Manifest V3 - Firefox)
  *
- * Actúa como puente seguro entre el content script y browser.downloads.
- * browser.downloads no está disponible en content scripts, por eso
- * el content script delega aquí la descarga nativa.
- *
- * Firefox MV3 usa `browser.*` (con polyfill) y background "scripts" en lugar de service_worker.
+ * Misma lógica que Chrome pero usando browser.* (Promise-based).
+ * Firefox no suspende el background script, pero mantenemos paridad.
  */
+
+const PDFSHIFT_CONFIG = {
+    endpoint: 'https://api.pdfshift.io/v3/convert/pdf',
+    apiKey:   'TU_API_KEY_AQUI',
+    timeout:  90000
+};
 
 browser.runtime.onMessage.addListener((request, _sender) => {
 
+    if (request.action === 'generate_pdf') {
+        return generateAndDownload(request.url, request.filename);
+    }
+
     if (request.action === 'trigger_download') {
-        // browser.downloads.download devuelve una Promise en Firefox
         return browser.downloads.download({
             url:      request.url,
             filename: request.filename,
             saveAs:   true
-        }).then(downloadId => {
-            return { success: true, id: downloadId };
-        }).catch(error => {
-            console.error('[SDL BG Firefox] Error en descarga:', error.message);
-            return { success: false, error: error.message };
-        });
+        }).then(id => ({ success: true, id }))
+          .catch(err => ({ success: false, error: err.message }));
     }
 
     return Promise.resolve({ success: true });
 });
+
+async function generateAndDownload(url, filename) {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT_CONFIG.timeout);
+
+    let response;
+    try {
+        response = await fetch(PDFSHIFT_CONFIG.endpoint, {
+            method:  'POST',
+            headers: {
+                'X-API-Key':    PDFSHIFT_CONFIG.apiKey,
+                'Content-Type': 'application/json'
+            },
+            body:   JSON.stringify({ source: url }),
+            signal: controller.signal
+        });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`PDFShift Error ${response.status}: ${errText}`);
+    }
+
+    const pdfBlob   = await response.blob();
+    const objectUrl = URL.createObjectURL(pdfBlob);
+
+    return browser.downloads.download({
+        url:      objectUrl,
+        filename: `${filename}.pdf`,
+        saveAs:   true
+    }).then(id => ({ success: true, downloadId: id }));
+}
