@@ -53,11 +53,12 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // ── Estrategia 0: key universal — funciona para CUALQUIER documento ──────
+    // ── Estrategia 0: key universal + cookies del usuario ───────────────
+    // Cookies necesarias para que Scribd no muestre el GDPR overlay.
     if (docId) {
         try {
             console.log('[SDL BG] Estrategia 0: embed con key universal...');
-            const embedHtml = await fetchEmbedWithKey(docId, SCRIBD_UNIVERSAL_KEY);
+            const embedHtml = await fetchEmbedWithKey(docId, SCRIBD_UNIVERSAL_KEY, true);
             if (embedHtml) {
                 console.log('[SDL BG] Estrategia 0 OK: documento desbloqueado');
                 const objectUrl = await convertHtmlToPdf(embedHtml, false);
@@ -193,22 +194,28 @@ async function tryScribdDirectDownload(docId) {
 
 
 /**
- * Estrategia 1: fetchear el embed usando un access_key ya conocido.
- * No requiere cookies. El embed URL fue diseñado para acceso externo con este token.
+ * Fetchea el embed de Scribd con un access_key.
+ * @param {boolean} withCookies - Pasar cookies del usuario (necesario para evitar GDPR overlay).
  */
-async function fetchEmbedWithKey(docId, accessKey) {
+async function fetchEmbedWithKey(docId, accessKey, withCookies = false) {
     const embedUrl = [
         `https://www.scribd.com/embeds/${docId}/content`,
-        `?start_page=1&view_mode=scroll`,
+        `?start_page=1&view_mode=scroll&show_recommendations=false`,
         `&access_key=${encodeURIComponent(accessKey)}`
     ].join('');
 
-    const res = await fetch(embedUrl, {
-        headers: { ...SCRIBD_HEADERS }
-    });
+    const headers = { ...SCRIBD_HEADERS };
+    if (withCookies) {
+        const cookies   = await getScribdCookies();
+        const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+        if (cookieStr) headers.Cookie = cookieStr;
+    }
 
+    const res = await fetch(embedUrl, { headers });
     if (!res.ok) throw new Error(`Scribd embed ${res.status}`);
-    return wrapEmbedHtml(await res.text());
+
+    const html = await res.text();
+    return wrapEmbedHtml(html);
 }
 
 /**
@@ -288,18 +295,29 @@ function extractAccessKey(html) {
  * Envuelve el HTML del embed de Scribd en un documento HTML limpio
  * con estilos de impresión básicos para que PDFShift lo renderice bien.
  */
-function wrapEmbedHtml(html, docId) {
+function wrapEmbedHtml(html) {
     return `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; padding: 0; background: white; color: black; font-family: Georgia, serif; }
+    * { box-sizing: border-box; max-width: 100%; }
+    html, body { margin: 0; padding: 0; background: white; color: black;
+                 font-family: Georgia, serif; overflow-x: hidden; }
     [class*="page"], .outer_page { page-break-after: always; background: white; }
-    img { max-width: 100%; height: auto; }
+    img { max-width: 100%; height: auto; display: block; }
+
     /* Ocultar UI de Scribd */
     .toolbar_container, .toolbar, .header, nav, [class*="toolbar"] { display: none !important; }
+
+    /* Ocultar GDPR/cookie consent overlays (Osano, IAB TCF, etc.) */
+    [class*="osano"], [id*="osano"],
+    [class*="consent"], [id*="consent"],
+    [class*="cookie"], [id*="cookie"],
+    [class*="gdpr"],   [id*="gdpr"],
+    [class*="privacy-manager"], [id*="privacy-manager"],
+    [role="dialog"][aria-modal="true"],
+    .sp-message-container, .sp-message-notice { display: none !important; }
 </style>
 </head>
 <body>
@@ -307,6 +325,7 @@ ${html}
 </body>
 </html>`;
 }
+
 
 // ─── Estrategia 2: HTML → PDFShift ───────────────────────────────────────
 async function convertHtmlToPdf(htmlContent, printMode = false) {
