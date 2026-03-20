@@ -293,11 +293,112 @@ function setStatus(message, type) {
     el.style.display = 'block';
 }
 
+// ─── Detección de embed externo ───────────────────────────────────────────
+
+/**
+ * Busca iframes de Scribd en la página y extrae el access_key de su src.
+ * En páginas externas, Scribd ya incluye el access_key directamente en el src
+ * del iframe — el documento completo es accesible sin cuenta ni suscripción.
+ */
+function findExternalScribdEmbed() {
+    const iframe = document.querySelector(
+        'iframe[src*="scribd.com/embeds"], iframe[src*="scribd.com/doc"]'
+    );
+    if (!iframe) return null;
+
+    const src = iframe.getAttribute('src') || iframe.src || '';
+    if (!src) return null;
+
+    try {
+        const u = new URL(src);
+        const accessKey = u.searchParams.get('access_key');
+        const docId     = src.match(/\/embeds\/(\d+)|\/doc\/(\d+)/)?.[1]
+                       || src.match(/\/embeds\/(\d+)|\/doc\/(\d+)/)?.[2];
+        if (accessKey && docId) return { accessKey, docId, iframe };
+    } catch { /* URL inválida */ }
+
+    return null;
+}
+
 // ─── Init ──────────────────────────────────────────────────────────────────
 (function init() {
-    try {
-        chrome.storage.local.get(['language'], () => renderOverlay());
-    } catch {
+    const isScribdPage = location.hostname.includes('scribd.com');
+
+    if (isScribdPage) {
+        // Flujo normal: mostrar overlay de descarga para la página de documento
+        try {
+            chrome.storage.local.get(['language'], () => renderOverlay());
+        } catch {
+            renderOverlay();
+        }
+        return;
+    }
+
+    // ── Página externa: buscar embed de Scribd ──────────────────────────────
+    function tryExternalEmbed() {
+        const found = findExternalScribdEmbed();
+        if (!found) return false;
+
+        const { accessKey, docId, iframe } = found;
+        console.log('[SDL] Embed externo de Scribd detectado. docId:', docId);
+
+        // Mostrar overlay normal para iniciar la descarga
         renderOverlay();
+
+        // Sobrescribir el título del overlay con el del documento
+        const nameEl = document.getElementById('sdl-doc-name');
+        if (nameEl) nameEl.textContent = `Documento Scribd #${docId}`;
+
+        // Connectar el botón a la descarga directa del embed
+        const btn = document.getElementById('sdl-download-btn');
+        if (!btn) return true;
+
+        btn.addEventListener('click', async () => {
+            if (AppState.isProcessing) return;
+            AppState.isProcessing = true;
+            setButtonState(btn, 'loading');
+            setStatus('', null);
+
+            const progressUI = document.getElementById('sdl-progress-ui');
+            if (progressUI) progressUI.style.display = 'block';
+
+            try {
+                const filename = ScribdUtils.sanitizeFilename(`scribd_${docId}`);
+                const response = await sendToBackground({
+                    action:    'generate_pdf',
+                    html:      null,
+                    accessKey: accessKey,
+                    url:       `https://www.scribd.com/document/${docId}`,
+                    filename:  filename
+                });
+
+                if (!response.success) throw new Error(response.error || 'Error desconocido');
+
+                setButtonState(btn, 'success');
+                setStatus('PDF descargado con exito', 'success');
+            } catch (err) {
+                console.error('[SDL]', err);
+                setStatus(err.message, 'error');
+                setButtonState(btn, 'idle');
+            } finally {
+                AppState.isProcessing = false;
+                const progressUI = document.getElementById('sdl-progress-ui');
+                setTimeout(() => { if (progressUI) progressUI.style.display = 'none'; }, 4000);
+            }
+        });
+
+        return true;
+    }
+
+    // Intentar inmediatamente (embed ya cargado)
+    if (!tryExternalEmbed()) {
+        // Si no encontró el embed, observar el DOM para cuando se cargue dinámicamente
+        const observer = new MutationObserver(() => {
+            if (tryExternalEmbed()) observer.disconnect();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        // Dejar de buscar después de 15s para no consumir recursos indefinidamente
+        setTimeout(() => observer.disconnect(), 15_000);
     }
 })();
+

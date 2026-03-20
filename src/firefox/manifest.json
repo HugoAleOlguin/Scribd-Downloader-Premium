@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "*://*.scribd.com/*",
-    "https://api.pdfshift.io/*"
+    "https://api.pdfshift.io/*",
+    "<all_urls>"
   ],
   "background": {
     "scripts": ["background.js"],
@@ -44,6 +45,18 @@
       "all_frames": false,
       "js": [
         "libs/shim.js",
+        "libs/i18n.js",
+        "services/pdfApi.js",
+        "content.js"
+      ],
+      "css": ["overlay.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "exclude_matches": ["*://*.scribd.com/*"],
+      "all_frames": false,
+      "js": [
         "libs/i18n.js",
         "services/pdfApi.js",
         "content.js"

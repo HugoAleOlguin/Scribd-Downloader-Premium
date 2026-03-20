@@ -49,31 +49,42 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // ── Estrategia 0: descarga directa de Scribd (endpoint de suscriptores) ───
-    // Si el usuario tiene suscripción, Scribd devuelve el PDF directamente.
+    // ── Estrategia A: embed con access_key (páginas externas o cuando se interceptó) ─
+    // El embed URL con access_key es accesible sin cuenta ni suscripción.
+    if (docId && accessKey) {
+        try {
+            console.log('[SDL BG] Estrategia A: embed con access_key (sin cuenta)...');
+            const embedHtml = await fetchEmbedWithKey(docId, accessKey);
+            const objectUrl = await convertHtmlToPdf(embedHtml, false);
+            return triggerDownload(objectUrl, `${filename}.pdf`);
+        } catch (err) {
+            console.log('[SDL BG] Estrategia A falló:', err.message);
+        }
+    }
+
+    // ── Estrategia B: descarga directa de Scribd (suscriptores) ─────────────
     if (docId) {
         try {
             const directUrl = await tryScribdDirectDownload(docId);
             if (directUrl) {
-                console.log('[SDL BG] Estrategia 0 OK: PDF directo de Scribd');
+                console.log('[SDL BG] Estrategia B OK: PDF directo de Scribd');
                 return triggerDownload(directUrl, `${filename}.pdf`);
             }
         } catch (err) {
-            console.log('[SDL BG] Estrategia 0 falló:', err.message);
+            console.log('[SDL BG] Estrategia B falló:', err.message);
         }
     }
 
-    // ── Estrategia 1: HTML del body capturado por content.js ────────────
+    // ── Estrategia C: HTML del body capturado por content.js ────────────
     if (domHtml) {
         try {
-            console.log('[SDL BG] Estrategia 1: convirtiendo HTML del DOM a PDF (printMode:', printMode, ')...');
+            console.log('[SDL BG] Estrategia C: convirtiendo HTML del DOM a PDF (printMode:', printMode, ')...');
             const objectUrl = await convertHtmlToPdf(domHtml, printMode);
             return triggerDownload(objectUrl, `${filename}.pdf`);
         } catch (err) {
-            console.log('[SDL BG] Estrategia 1 falló:', err.message);
+            console.log('[SDL BG] Estrategia C falló:', err.message);
         }
     }
-
 
     throw new Error(
         domHtml
