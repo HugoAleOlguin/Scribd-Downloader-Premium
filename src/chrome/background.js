@@ -552,7 +552,7 @@ async function convertHtmlToPdf(htmlContent, printMode = false) {
         // DocumentManager necesita tiempo para crear los bordes/tablas via JS
         delay:    6000,
         // Viewport ancho para que el documento de Scribd (902px) no se clippee
-        viewport: { width: 1024, height: 1448 },
+        viewport: '1024x1448',
         ...(printMode && { media_type: 'print' })
     };
 
