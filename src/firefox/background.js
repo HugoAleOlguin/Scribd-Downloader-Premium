@@ -14,6 +14,8 @@ const PDFSHIFT = {
     timeout:  90_000
 };
 
+const SCRIBD_UNIVERSAL_KEY = 'key-fFexxf7r1bzEfWu3HKwf';
+
 const SCRIBD_HEADERS = {
     'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -38,7 +40,33 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // Estrategia 0: descarga directa de Scribd (suscriptores)
+    // Estrategia 0: key universal
+    if (docId) {
+        try {
+            console.log('[SDL BG] Estrategia 0: embed con key universal...');
+            const embedUrl = [
+                `https://www.scribd.com/embeds/${docId}/content`,
+                `?start_page=1&view_mode=scroll&show_recommendations=false`,
+                `&access_key=${encodeURIComponent(SCRIBD_UNIVERSAL_KEY)}`
+            ].join('');
+            const res = await fetch(embedUrl, { headers: { ...SCRIBD_HEADERS } });
+            if (res.ok) {
+                const html = await res.text();
+                if (html.length > 5000 && !html.includes('error_page')) {
+                    console.log('[SDL BG] Estrategia 0 OK');
+                    const wrapped = wrapEmbedHtml(html);
+                    const objectUrl = await convertHtmlToPdf(wrapped);
+                    return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
+                        .then(id => ({ downloadId: id }));
+                }
+            }
+            console.log('[SDL BG] Estrategia 0 falló: status', res.status);
+        } catch (err) {
+            console.log('[SDL BG] Estrategia 0 falló:', err.message);
+        }
+    }
+
+    // Estrategia A: access_key específico (embeds externos)
     if (docId) {
         try {
             const directUrl = await tryScribdDirectDownload(docId);

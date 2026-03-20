@@ -24,6 +24,10 @@ const PDFSHIFT = {
     timeout:  90_000
 };
 
+// Key universal de Scribd — compartida por todos los sitios de descarga (pdfdownloader.net, etc.)
+// Permite acceder al embed de CUALQUIER documento sin cuenta ni suscripción.
+const SCRIBD_UNIVERSAL_KEY = 'key-fFexxf7r1bzEfWu3HKwf';
+
 const SCRIBD_HEADERS = {
     'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -49,7 +53,22 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // ── Estrategia A: embed con access_key conocido (páginas externas) ────────
+    // ── Estrategia 0: key universal — funciona para CUALQUIER documento ──────
+    if (docId) {
+        try {
+            console.log('[SDL BG] Estrategia 0: embed con key universal...');
+            const embedHtml = await fetchEmbedWithKey(docId, SCRIBD_UNIVERSAL_KEY);
+            if (embedHtml) {
+                console.log('[SDL BG] Estrategia 0 OK: documento desbloqueado');
+                const objectUrl = await convertHtmlToPdf(embedHtml, false);
+                return triggerDownload(objectUrl, `${filename}.pdf`);
+            }
+        } catch (err) {
+            console.log('[SDL BG] Estrategia 0 falló:', err.message);
+        }
+    }
+
+    // ── Estrategia A: access_key específico del content script (embeds externos) ─
     if (docId && accessKey) {
         try {
             console.log('[SDL BG] Estrategia A: embed con access_key...');
