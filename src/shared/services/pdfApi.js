@@ -30,37 +30,54 @@ const ScribdUtils = {
 
     /**
      * Extrae el access_key de la página de Scribd.
-     * Scribd incrusta este token en el HTML como parte del estado de la página.
-     * Sin él, el endpoint /embeds/ devuelve error HTTP incluso con cookies válidas.
+     * El access_key autoriza acceso al embed URL sin necesidad de cookies.
      *
-     * Estrategias por orden de fiabilidad:
-     *   1. Iframes ya presentes en el DOM con el token en su src.
-     *   2. Scripts inline que contienen el JSON de datos del documento.
-     *   3. Variables globales de window.
+     * Búsqueda en orden de fiabilidad:
+     *   1. __NEXT_DATA__ (Next.js serializa todo el estado de la app aquí)
+     *   2. Iframes con el embed ya cargado
+     *   3. Scripts inline con patrones de texto
+     *   4. Variables globales de window
      */
     extractAccessKey() {
-        // Intento 1: buscar en iframes del embed (más directo)
-        const iframe = document.querySelector('iframe[src*="embeds"][src*="access_key"]');
-        if (iframe) {
+        // Intento 1: __NEXT_DATA__ (más fiable — Next.js SSR)
+        const nextDataEl = document.getElementById('__NEXT_DATA__');
+        if (nextDataEl) {
             try {
-                return new URL(iframe.src).searchParams.get('access_key');
+                const nextData = JSON.parse(nextDataEl.textContent);
+                const found = deepFindValue(nextData, 'access_key', 10);
+                if (found && /^[a-zA-Z0-9_\-]{10,}$/.test(found)) return found;
             } catch { /* continúa */ }
         }
 
-        // Intento 2: buscar en scripts inline (Scribd incrusta el estado como JSON)
-        const scriptPattern = /["']access_key["']\s*:\s*["']([a-zA-Z0-9_-]+)["']/;
-        for (const script of document.querySelectorAll('script:not([src])')) {
-            const match = script.textContent.match(scriptPattern);
-            if (match) return match[1];
+        // Intento 2: iframes con el embed ya cargado
+        const iframe = document.querySelector('iframe[src*="embeds"][src*="access_key"]');
+        if (iframe) {
+            try { return new URL(iframe.src).searchParams.get('access_key'); } catch { /* continúa */ }
         }
 
-        // Intento 3: variables globales conocidas de Scribd
-        try {
-            const globals = window._scribd_request_params
-                || window.scribd_document_options
-                || window.pageOptions;
-            if (globals?.access_key) return globals.access_key;
-        } catch { /* continúa */ }
+        // Intento 3: scripts inline (Scribd incrusta el estado como JSON en varios formatos)
+        const KEY_PATTERNS = [
+            /"access_key"\s*:\s*"([a-zA-Z0-9_\-]{10,})"/,
+            /'access_key'\s*:\s*'([a-zA-Z0-9_\-]{10,})'/,
+            /access_key[=:"'\s]+([a-zA-Z0-9_\-]{10,})/
+        ];
+        for (const script of document.querySelectorAll('script')) {
+            const text = script.textContent || '';
+            for (const pattern of KEY_PATTERNS) {
+                const m = text.match(pattern);
+                if (m && m[1]) return m[1];
+            }
+        }
+
+        // Intento 4: variables globales conocidas de Scribd
+        const WINDOW_GLOBALS = ['pageOptions', 'PageOptions', 'scribdApp', '__REDUX_STATE__', 'App'];
+        for (const key of WINDOW_GLOBALS) {
+            try {
+                const obj = window[key];
+                const found = deepFindValue(obj, 'access_key', 4);
+                if (found && /^[a-zA-Z0-9_\-]{10,}$/.test(found)) return found;
+            } catch { /* continúa */ }
+        }
 
         return null;
     },
@@ -97,3 +114,20 @@ const ScribdUtils = {
             .substring(0, 150);
     }
 };
+
+/**
+ * Búsqueda recursiva de un valor por clave en un objeto anidado.
+ * Limitada por profundidad para evitar ciclos infinitos o parseo excesivo.
+ */
+function deepFindValue(obj, key, maxDepth) {
+    if (maxDepth <= 0 || obj === null || typeof obj !== 'object') return null;
+    if (Object.prototype.hasOwnProperty.call(obj, key) && typeof obj[key] === 'string') {
+        return obj[key];
+    }
+    for (const k of Object.keys(obj)) {
+        const result = deepFindValue(obj[k], key, maxDepth - 1);
+        if (result !== null) return result;
+    }
+    return null;
+}
+

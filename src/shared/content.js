@@ -213,23 +213,22 @@ async function handleDownloadClick() {
         if (progressTx) progressTx.textContent   = 'Capturando contenido del documento...';
         setStatus('', null);
 
-        const rawTitle  = ScribdUtils.extractTitle();
-        const filename  = ScribdUtils.sanitizeFilename(rawTitle);
-
-        // Intentar capturar HTML del DOM (puede ser null si el reader no está cargado)
-        // En ese caso el background usará la Estrategia 1: fetch directo a Scribd
+        const rawTitle   = ScribdUtils.extractTitle();
+        const filename   = ScribdUtils.sanitizeFilename(rawTitle);
+        const accessKey  = ScribdUtils.extractAccessKey();
         const htmlContent = captureRenderedContent();
-        if (!htmlContent) {
-            console.debug('[SDL] DOM vacío: el background usará fetch directo a Scribd');
-        }
+
+        console.log('[SDL] access_key en DOM:', accessKey ? `sí (${accessKey.substring(0, 10)}...)` : 'NO encontrado');
+        console.log('[SDL] HTML del DOM:', htmlContent ? `sí (${htmlContent.length} chars)` : 'NO encontrado');
 
         if (progressTx) progressTx.textContent = 'Enviando a PDFShift...';
 
         const response = await sendToBackground({
-            action:   'generate_pdf',
-            html:     htmlContent,   // puede ser null: background tiene fallback
-            url:      window.location.href,
-            filename: filename
+            action:    'generate_pdf',
+            html:      htmlContent,
+            url:       window.location.href,
+            accessKey: accessKey,
+            filename:  filename
         });
 
         if (!response.success) {

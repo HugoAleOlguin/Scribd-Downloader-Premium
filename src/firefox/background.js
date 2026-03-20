@@ -1,6 +1,11 @@
 /**
  * Scribd Premium Downloader - Background Script (Firefox)
- * @version 3.4.0 (Manifest V3 - Firefox)
+ * @version 3.5.0 (Manifest V3 - Firefox)
+ *
+ * ESTRATEGIAS (en orden):
+ *  1. Usar el access_key que encontró el content script → fetch embed directo (sin cookies)
+ *  2. Background busca el access_key en el HTML de la página de Scribd (con cookies)
+ *  3. Usar el HTML capturado del DOM por content.js
  */
 
 const PDFSHIFT = {
@@ -29,64 +34,101 @@ browser.runtime.onMessage.addListener((request, _sender) => {
 });
 
 // ─── Orquestador ──────────────────────────────────────────────────────────
-async function generateAndDownload({ html: domHtml, url, filename }) {
+async function generateAndDownload({ html: domHtml, url, accessKey, filename }) {
     const docId = extractDocId(url);
+    console.log('[SDL BG] docId:', docId, '| accessKey:', accessKey ? 'sí' : 'no', '| domHtml:', domHtml ? 'sí' : 'no');
 
-    // Estrategia 1: fetch directo a Scribd con cookies del usuario
-    if (docId) {
+    // ── Estrategia 1: access_key encontrado por el content script ──────────
+    // El embed URL con access_key no necesita cookies — fue diseñado para embeds externos.
+    if (docId && accessKey) {
         try {
-            const embedHtml = await fetchScribdEmbed(docId);
-            if (embedHtml) {
-                console.debug('[SDL BG] Estrategia 1 OK: embed obtenido de Scribd');
-                const objectUrl = await convertHtmlToPdf(embedHtml);
-                return browser.downloads.download({
-                    url:      objectUrl,
-                    filename: `${filename}.pdf`,
-                    saveAs:   true
-                }).then(id => ({ downloadId: id }));
-            }
+            console.log('[SDL BG] Estrategia 1: fetcheando embed con access_key...');
+            const embedHtml = await fetchEmbedWithKey(docId, accessKey);
+            console.log('[SDL BG] Embed OK, enviando a PDFShift...');
+            const objectUrl = await convertHtmlToPdf(embedHtml);
+            return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
+                .then(id => ({ downloadId: id }));
         } catch (err) {
-            console.warn('[SDL BG] Estrategia 1 falló:', err.message);
+            console.log('[SDL BG] Estrategia 1 falló:', err.message);
         }
     }
 
-    // Estrategia 2: HTML capturado del DOM
+    // ── Estrategia 2: background fetchea Scribd para obtener el access_key ─
+    if (docId && !accessKey) {
+        try {
+            console.log('[SDL BG] Estrategia 2: fetch de página Scribd para access_key...');
+            const embedHtml = await fetchScribdEmbed(docId);
+            if (embedHtml) {
+                console.log('[SDL BG] Embed vía fetch OK');
+                const objectUrl = await convertHtmlToPdf(embedHtml);
+                return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
+                    .then(id => ({ downloadId: id }));
+            }
+        } catch (err) {
+            console.log('[SDL BG] Estrategia 2 falló:', err.message);
+        }
+    }
+
+    // ── Estrategia 3: HTML del DOM capturado por content.js ───────────────
     if (domHtml) {
-        console.debug('[SDL BG] Estrategia 2: HTML del DOM');
-        const objectUrl = await convertHtmlToPdf(domHtml);
-        return browser.downloads.download({
-            url:      objectUrl,
-            filename: `${filename}.pdf`,
-            saveAs:   true
-        }).then(id => ({ downloadId: id }));
+        try {
+            console.log('[SDL BG] Estrategia 3: usando HTML del DOM...');
+            const objectUrl = await convertHtmlToPdf(domHtml);
+            return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
+                .then(id => ({ downloadId: id }));
+        } catch (err) {
+            console.log('[SDL BG] Estrategia 3 falló:', err.message);
+        }
     }
 
     throw new Error(
         'No se pudo obtener el contenido. ' +
-        'Asegúrate de que el documento esté cargado y vuelve a intentar.'
+        (accessKey ? '' : 'El access_key no fue encontrado en la página. ') +
+        'Asegúrate de que el documento esté completamente cargado.'
     );
 }
 
-// ─── Fetch autenticado a Scribd ───────────────────────────────────────────
+// ─── Estrategia 1: embed directo con access_key ───────────────────────────
+
+/**
+ * Fetchea el embed de Scribd usando el access_key como token de autorización.
+ * No requiere cookies del usuario: el access_key fue diseñado para acceso externo.
+ */
+async function fetchEmbedWithKey(docId, accessKey) {
+    const embedUrl = [
+        `https://www.scribd.com/embeds/${docId}/content`,
+        `?start_page=1&view_mode=scroll`,
+        `&access_key=${encodeURIComponent(accessKey)}`
+    ].join('');
+
+    const res = await fetch(embedUrl, { headers: { ...SCRIBD_HEADERS } });
+
+    if (!res.ok) throw new Error(`Scribd embed ${res.status}`);
+    return wrapEmbedHtml(await res.text());
+}
+
+// ─── Estrategia 2: fetch autenticado a Scribd ────────────────────────────
+
 async function fetchScribdEmbed(docId) {
     const cookies   = await getScribdCookies();
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
     const authHeaders = { ...SCRIBD_HEADERS, Cookie: cookieStr };
 
     const pageUrl = `https://www.scribd.com/document/${docId}`;
+    console.log('[SDL BG] Fetching Scribd page:', pageUrl);
+
     const pageRes = await fetch(pageUrl, { headers: authHeaders, redirect: 'follow' });
+    console.log('[SDL BG] Scribd page status:', pageRes.status);
 
     if (!pageRes.ok) throw new Error(`Scribd página ${pageRes.status}`);
 
     const pageHtml  = await pageRes.text();
+    console.log('[SDL BG] HTML length:', pageHtml.length);
+
     const accessKey = extractAccessKey(pageHtml);
+    console.log('[SDL BG] access_key en respuesta:', accessKey ? `sí (${accessKey.substring(0, 10)}...)` : 'NO');
 
-    if (!accessKey) {
-        console.warn('[SDL BG] access_key no encontrado en el HTML de Scribd');
-        return null;
-    }
-
-    console.debug('[SDL BG] access_key encontrado:', accessKey.substring(0, 10) + '...');
+    if (!accessKey) return null;
 
     const embedUrl = [
         `https://www.scribd.com/embeds/${docId}/content`,
@@ -100,15 +142,13 @@ async function fetchScribdEmbed(docId) {
     });
 
     if (!embedRes.ok) throw new Error(`Scribd embed ${embedRes.status}`);
-
-    const rawHtml = await embedRes.text();
-    return wrapEmbedHtml(rawHtml);
+    return wrapEmbedHtml(await embedRes.text());
 }
 
 function extractAccessKey(html) {
     const patterns = [
         /"access_key"\s*:\s*"([a-zA-Z0-9_\-]{10,})"/,
-        /access_key['":\s]+['"]([a-zA-Z0-9_\-]{10,})['"]/,
+        /'access_key'\s*:\s*'([a-zA-Z0-9_\-]{10,})'/,
         /data-access-key="([a-zA-Z0-9_\-]{10,})"/
     ];
     for (const p of patterns) {
@@ -122,13 +162,14 @@ function wrapEmbedHtml(html) {
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><style>
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 0; background: white; color: black; font-family: Georgia, serif; }
+    body { margin: 0; padding: 20px; background: white; color: black; font-family: Georgia, serif; }
     [class*="page"], .outer_page { page-break-after: always; background: white; }
     img { max-width: 100%; height: auto; }
     .toolbar_container, .toolbar, nav, [class*="toolbar"] { display: none !important; }
 </style></head><body>${html}</body></html>`;
 }
 
+// ─── PDFShift ─────────────────────────────────────────────────────────────
 async function convertHtmlToPdf(htmlContent) {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
@@ -153,6 +194,7 @@ async function convertHtmlToPdf(htmlContent) {
     return URL.createObjectURL(await response.blob());
 }
 
+// ─── Utilidades ───────────────────────────────────────────────────────────
 function extractDocId(url) {
     return url?.match(/\/(?:document|doc|embeds|read|book)\/(\d+)/)?.[1] ?? null;
 }
@@ -162,7 +204,7 @@ async function getScribdCookies() {
         const cookies = await browser.cookies.getAll({ domain: 'scribd.com' });
         return cookies.map(c => ({ name: c.name, value: c.value }));
     } catch (err) {
-        console.warn('[SDL BG] Cookies no disponibles:', err.message);
+        console.log('[SDL BG] Cookies no disponibles:', err.message);
         return [];
     }
 }

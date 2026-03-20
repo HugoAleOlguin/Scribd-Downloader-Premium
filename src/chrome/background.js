@@ -45,42 +45,80 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 });
 
 // ─── Orquestador principal ────────────────────────────────────────────────
-async function generateAndDownload({ html: domHtml, url, filename }) {
+async function generateAndDownload({ html: domHtml, url, accessKey, filename }) {
     const docId = extractDocId(url);
+    console.log('[SDL BG] docId:', docId, '| accessKey:', accessKey ? 'sí' : 'no', '| domHtml:', domHtml ? 'sí' : 'no');
 
-    // ── Estrategia 1: fetch directo a Scribd con cookies del usuario ──────
-    if (docId) {
+    // ── Estrategia 1: usar el access_key encontrado por el content script ─
+    // El embed URL con access_key es pública: no necesita cookies ni credenciales.
+    // Fé diseñada para embeds externos (iframes en otros sitios).
+    if (docId && accessKey) {
         try {
+            console.log('[SDL BG] Estrategia 1: fetcheando embed con access_key...');
+            const embedHtml = await fetchEmbedWithKey(docId, accessKey);
+            console.log('[SDL BG] Embed obtenido, enviando a PDFShift...');
+            const objectUrl = await convertHtmlToPdf(embedHtml, filename);
+            return triggerDownload(objectUrl, `${filename}.pdf`);
+        } catch (err) {
+            console.log('[SDL BG] Estrategia 1 falló:', err.message);
+        }
+    }
+
+    // ── Estrategia 2: background busca access_key fetcheando pagina de Scribd ─
+    if (docId && !accessKey) {
+        try {
+            console.log('[SDL BG] Estrategia 2: fetch de página Scribd para obtener access_key...');
             const embedHtml = await fetchScribdEmbed(docId);
             if (embedHtml) {
-                console.debug('[SDL BG] Estrategia 1 OK: embed obtenido de Scribd');
+                console.log('[SDL BG] Embed vía fetch de página OK');
                 const objectUrl = await convertHtmlToPdf(embedHtml, filename);
                 return triggerDownload(objectUrl, `${filename}.pdf`);
             }
         } catch (err) {
-            console.warn('[SDL BG] Estrategia 1 falló:', err.message);
+            console.log('[SDL BG] Estrategia 2 falló:', err.message);
         }
     }
 
-    // ── Estrategia 2: HTML capturado del DOM por content.js ───────────────
+    // ── Estrategia 3: HTML del DOM capturado por content.js ───────────────
     if (domHtml) {
-        console.debug('[SDL BG] Estrategia 2: usando HTML del DOM del content script');
-        const objectUrl = await convertHtmlToPdf(domHtml, filename);
-        return triggerDownload(objectUrl, `${filename}.pdf`);
+        try {
+            console.log('[SDL BG] Estrategia 3: usando HTML del DOM...');
+            const objectUrl = await convertHtmlToPdf(domHtml, filename);
+            return triggerDownload(objectUrl, `${filename}.pdf`);
+        } catch (err) {
+            console.log('[SDL BG] Estrategia 3 falló:', err.message);
+        }
     }
 
     throw new Error(
         'No se pudo obtener el contenido. ' +
-        'Asegúrate de que el documento esté completamente cargado y vuelve a intentar.'
+        (accessKey ? '' : 'El access_key no fue encontrado en la página. ') +
+        'Asegúrate de que el documento esté completamente cargado.'
     );
 }
 
-// ─── Estrategia 1: fetch autenticado a Scribd ─────────────────────────────
+/**
+ * Estrategia 1: fetchear el embed usando un access_key ya conocido.
+ * No requiere cookies. El embed URL fue diseñado para acceso externo con este token.
+ */
+async function fetchEmbedWithKey(docId, accessKey) {
+    const embedUrl = [
+        `https://www.scribd.com/embeds/${docId}/content`,
+        `?start_page=1&view_mode=scroll`,
+        `&access_key=${encodeURIComponent(accessKey)}`
+    ].join('');
+
+    const res = await fetch(embedUrl, {
+        headers: { ...SCRIBD_HEADERS }
+    });
+
+    if (!res.ok) throw new Error(`Scribd embed ${res.status}`);
+    return wrapEmbedHtml(await res.text());
+}
 
 /**
- * Obtiene el embed HTML de Scribd usando las cookies de sesión del usuario.
- * Las extensiones con host_permissions pueden enviar el header Cookie
- * manualmente sin restricciones CORS.
+ * Estrategia 2: el background fetchea la página de Scribd con las cookies del usuario
+ * para obtener el access_key, luego fetchea el embed.
  */
 async function fetchScribdEmbed(docId) {
     const cookies    = await getScribdCookies();
