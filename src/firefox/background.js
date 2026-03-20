@@ -54,7 +54,7 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
                 const html = await res.text();
                 if (html.length > 5000 && !html.includes('error_page')) {
                     console.log('[SDL BG] Estrategia 0 OK');
-                    const wrapped = wrapEmbedHtml(stripScripts(html));
+                    const wrapped = prepareEmbedHtml(stripScripts(html));
                     const objectUrl = await convertHtmlToPdf(wrapped);
                     return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
                         .then(id => ({ downloadId: id }));
@@ -173,7 +173,7 @@ async function fetchScribdEmbed(docId) {
     });
 
     if (!embedRes.ok) throw new Error(`Scribd embed ${embedRes.status}`);
-    return wrapEmbedHtml(await embedRes.text());
+    return prepareEmbedHtml(stripScripts(await embedRes.text()));
 }
 
 function extractAccessKey(html) {
@@ -190,26 +190,28 @@ function extractAccessKey(html) {
 }
 
 function stripScripts(html) {
-
     return html
         .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<script\b[^>]*\/>/gi, '')
         .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');
 }
 
-function wrapEmbedHtml(html) {
-    return `<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><style>
-* { box-sizing: border-box; max-width: 100%; }
-html, body { margin: 0; padding: 0; background: white; color: black;
-             font-family: Georgia, serif; overflow-x: hidden; }
-[class*="page"], .outer_page { page-break-after: always; background: white; }
-img { max-width: 100%; height: auto; display: block; }
-.toolbar_container, .toolbar, nav, [class*="toolbar"] { display: none !important; }
+function prepareEmbedHtml(html) {
+
+    const overrideCSS = `<style id="sdl-overrides">
+html, body { overflow-x: hidden !important; }
+* { max-width: 100% !important; box-sizing: border-box; }
+img { max-width: 100% !important; height: auto !important; display: block; }
+[class*="toolbar_container"], [class*="toolbar"],
+[class*="DocControls"], [class*="nav"] { display: none !important; }
 [class*="osano"], [id*="osano"], [class*="consent"], [id*="consent"],
 [class*="cookie"], [id*="cookie"], [class*="gdpr"], [id*="gdpr"],
 [role="dialog"][aria-modal="true"], .sp-message-container { display: none !important; }
-</style></head><body>${html}</body></html>`;
+</style>`;
+    if (html.includes('</head>')) {
+        return html.replace('</head>', overrideCSS + '\n</head>');
+    }
+    return overrideCSS + html;
 }
 
 // ─── PDFShift ─────────────────────────────────────────────────────────────

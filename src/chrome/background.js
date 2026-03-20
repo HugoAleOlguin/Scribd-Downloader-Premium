@@ -163,7 +163,7 @@ async function tryEmbedWithCookies(docId) {
         return null;
     }
 
-    return wrapEmbedHtml(html);
+    return prepareEmbedHtml(html);
 }
 
 
@@ -215,7 +215,7 @@ async function fetchEmbedWithKey(docId, accessKey, withCookies = false) {
     if (!res.ok) throw new Error(`Scribd embed ${res.status}`);
 
     const html = await res.text();
-    return wrapEmbedHtml(stripScripts(html));
+    return prepareEmbedHtml(stripScripts(html));
 }
 
 /**
@@ -278,7 +278,7 @@ async function fetchScribdEmbed(docId) {
     const rawHtml = await embedRes.text();
 
     // Envolver en un documento limpio para que PDFShift lo renderice correctamente
-    return wrapEmbedHtml(rawHtml, docId);
+    return prepareEmbedHtml(stripScripts(rawHtml));
 }
 
 /**
@@ -304,40 +304,39 @@ function extractAccessKey(html) {
 }
 
 /**
- * Envuelve el HTML del embed de Scribd en un documento HTML limpio
- * con estilos de impresión básicos para que PDFShift lo renderice bien.
+ * Prepara el HTML del embed de Scribd para PDFShift:
+ * - Mantiene el <head> original con todos los <link> CSS de Scribd (scribdassets.com)
+ *   para que PDFShift los cargue y mantenga negritas, tablas, colores, fuentes.
+ * - Elimina scripts (ya strippeados antes) e inyecta solo un CSS de override.
+ * NO reemplaza el HTML: lo aumenta. Esto preserva toda la fidelidad visual.
  */
-function wrapEmbedHtml(html) {
-    return `<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<style>
-    * { box-sizing: border-box; max-width: 100%; }
-    html, body { margin: 0; padding: 0; background: white; color: black;
-                 font-family: Georgia, serif; overflow-x: hidden; }
-    [class*="page"], .outer_page { page-break-after: always; background: white; }
-    img { max-width: 100%; height: auto; display: block; }
+function prepareEmbedHtml(html) {
+    const overrideCSS = `<style id="sdl-overrides">
+/* Fix: prevenir overflow horizontal */
+html, body { overflow-x: hidden !important; }
+* { max-width: 100% !important; box-sizing: border-box; }
+img { max-width: 100% !important; height: auto !important; display: block; }
 
-    /* Ocultar UI de Scribd */
-    .toolbar_container, .toolbar, .header, nav, [class*="toolbar"] { display: none !important; }
+/* Ocultar UI de Scribd (toolbar, controles de navegación) */
+[class*="toolbar_container"], [class*="toolbar"],
+[class*="DocControls"], [class*="nav"] { display: none !important; }
 
-    /* Ocultar GDPR/cookie consent overlays (Osano, IAB TCF, etc.) */
-    [class*="osano"], [id*="osano"],
-    [class*="consent"], [id*="consent"],
-    [class*="cookie"], [id*="cookie"],
-    [class*="gdpr"],   [id*="gdpr"],
-    [class*="privacy-manager"], [id*="privacy-manager"],
-    [role="dialog"][aria-modal="true"],
-    .sp-message-container, .sp-message-notice { display: none !important; }
-</style>
-</head>
-<body>
-${html}
-</body>
-</html>`;
+/* Ocultar GDPR / Osano consent overlay */
+[class*="osano"], [id*="osano"],
+[class*="consent"], [id*="consent"],
+[class*="cookie"], [id*="cookie"],
+[class*="gdpr"],   [id*="gdpr"],
+[role="dialog"][aria-modal="true"],
+.sp-message-container { display: none !important; }
+</style>`;
+
+    // Inyectar DESPUÉS de los CSS de Scribd (mayor especificidad)
+    if (html.includes('</head>')) {
+        return html.replace('</head>', overrideCSS + '\n</head>');
+    }
+    // Fallback: anteponer si no hay </head>
+    return overrideCSS + html;
 }
-
 
 // ─── Estrategia 2: HTML → PDFShift ───────────────────────────────────────
 async function convertHtmlToPdf(htmlContent, printMode = false) {
