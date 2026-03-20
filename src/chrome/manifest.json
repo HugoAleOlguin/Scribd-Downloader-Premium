@@ -6,7 +6,8 @@
   "permissions": [
     "activeTab",
     "downloads",
-    "storage"
+    "storage",
+    "cookies"
   ],
   "host_permissions": [
     "*://*.scribd.com/*",
