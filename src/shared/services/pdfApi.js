@@ -13,16 +13,56 @@ const SCRIBD_DOCUMENT_REGEX =
 const ScribdUtils = {
 
     /**
-     * Convierte una URL de documento normal al formato /embeds/ (sin paywall).
-     * La API de PDF visita la URL desde sus servidores, así que este formato
-     * es el que tiene más probabilidades de mostrar el contenido completo.
+     * Convierte una URL de documento al formato /embeds/ con access_key.
+     * El access_key es un token de sesión generado por Scribd que el servidor
+     * de PDFShift necesita para poder cargar el embed sin ser bloqueado.
      */
-    normalizeUrl(url) {
+    normalizeUrl(url, accessKey) {
         const match = url.match(SCRIBD_DOCUMENT_REGEX);
         if (match) {
-            return `https://www.scribd.com/embeds/${match[3]}/content`;
+            const docId = match[3];
+            let embedUrl = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll`;
+            if (accessKey) embedUrl += `&access_key=${encodeURIComponent(accessKey)}`;
+            return embedUrl;
         }
         return url;
+    },
+
+    /**
+     * Extrae el access_key de la página de Scribd.
+     * Scribd incrusta este token en el HTML como parte del estado de la página.
+     * Sin él, el endpoint /embeds/ devuelve error HTTP incluso con cookies válidas.
+     *
+     * Estrategias por orden de fiabilidad:
+     *   1. Iframes ya presentes en el DOM con el token en su src.
+     *   2. Scripts inline que contienen el JSON de datos del documento.
+     *   3. Variables globales de window.
+     */
+    extractAccessKey() {
+        // Intento 1: buscar en iframes del embed (más directo)
+        const iframe = document.querySelector('iframe[src*="embeds"][src*="access_key"]');
+        if (iframe) {
+            try {
+                return new URL(iframe.src).searchParams.get('access_key');
+            } catch { /* continúa */ }
+        }
+
+        // Intento 2: buscar en scripts inline (Scribd incrusta el estado como JSON)
+        const scriptPattern = /["']access_key["']\s*:\s*["']([a-zA-Z0-9_-]+)["']/;
+        for (const script of document.querySelectorAll('script:not([src])')) {
+            const match = script.textContent.match(scriptPattern);
+            if (match) return match[1];
+        }
+
+        // Intento 3: variables globales conocidas de Scribd
+        try {
+            const globals = window._scribd_request_params
+                || window.scribd_document_options
+                || window.pageOptions;
+            if (globals?.access_key) return globals.access_key;
+        } catch { /* continúa */ }
+
+        return null;
     },
 
     /**

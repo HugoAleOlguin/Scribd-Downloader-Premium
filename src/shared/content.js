@@ -100,9 +100,13 @@ async function handleDownloadClick() {
         if (progressTx) progressTx.textContent   = 'Conectando con el servidor PDF...';
         setStatus('', null);
 
-        const normalizedUrl = ScribdUtils.normalizeUrl(window.location.href);
+        const accessKey     = ScribdUtils.extractAccessKey();
+        const normalizedUrl = ScribdUtils.normalizeUrl(window.location.href, accessKey);
         const rawTitle      = ScribdUtils.extractTitle();
         const filename      = ScribdUtils.sanitizeFilename(rawTitle);
+
+        console.debug('[SDL] accessKey encontrado:', accessKey ? 'sí (' + accessKey.substring(0, 8) + '...)' : 'no');
+        console.debug('[SDL] URL del embed:', normalizedUrl);
 
         const response = await sendToBackground({
             action:   'generate_pdf',
