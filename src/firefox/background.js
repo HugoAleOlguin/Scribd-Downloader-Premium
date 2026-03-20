@@ -84,13 +84,8 @@ function buildPayload(url, cookies) {
 async function getScribdCookies() {
     try {
         const cookies = await browser.cookies.getAll({ domain: 'scribd.com' });
-        return cookies.map(c => ({
-            name:   c.name,
-            value:  c.value,
-            domain: c.domain,
-            path:   c.path   || '/',
-            secure: c.secure || false
-        }));
+        return cookies.map(c => ({ name: c.name, value: c.value }));
+
     } catch (err) {
         console.warn('[SDL BG] No se pudieron leer cookies de Scribd:', err.message);
         return [];
