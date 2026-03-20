@@ -76,6 +76,31 @@ const OVERLAY_HTML = `
  * Selectores probados en orden de precisión.
  */
 function captureRenderedContent() {
+    const isEmbedPage = location.pathname.includes('/embeds/');
+
+    // En páginas embed de Scribd no hay nav/header/footer/anuncios.
+    // Capturar el body directamente sin ningún filtro de paywall.
+    if (isEmbedPage) {
+        console.log('[SDL] Página embed detectada — captura directa sin filtros');
+        const clone = document.body.cloneNode(true);
+        clone.querySelectorAll('script, noscript, iframe, #sdl-overlay').forEach(el => el.remove());
+        const text = (clone.textContent || '').trim();
+        if (text.length < 100) return null;
+
+        clone.querySelectorAll('img[src]').forEach(img => {
+            try { img.src = new URL(img.getAttribute('src'), window.location.origin).href; } catch {}
+        });
+
+        return {
+            html: `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<style>body{margin:0;padding:20px;background:#fff;font-family:Georgia,serif;}
+* { max-width:100% !important; box-sizing:border-box; }
+img { max-width:100% !important; height:auto; }</style>
+</head><body>${clone.innerHTML}</body></html>`,
+            printMode: false
+        };
+    }
+
     const bodyText = document.body.innerText || '';
 
     // Detectar paywall
