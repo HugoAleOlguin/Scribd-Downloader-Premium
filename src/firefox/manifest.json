@@ -10,7 +10,7 @@
   ],
   "host_permissions": [
     "*://*.scribd.com/*",
-    "https://api.ploi.io/*"
+    "https://ploi.cloud/*"
   ],
   "background": {
     "scripts": ["background.js"],

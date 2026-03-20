@@ -13,7 +13,8 @@ const SCRIBD_DOMAINS = {
 };
 
 const API_CONFIG = {
-    endpoint: 'https://api.ploi.io/api/tools/generate-pdf',
+    // Endpoint correcto de la Tools API de Ploi Cloud (distinto al de gestión de servidores api.ploi.io)
+    endpoint: 'https://ploi.cloud/api/v1/tools/pdf/convert/url',
     apiKey:   'V3HFJMSICVIXXE5VLTVSE2YY05GF9IZCOK53DR30KAKAJHU03QA2BLXSC1THN522FPK9I5DL4LVUU4SX',
     timeout:  90000 // 90 segundos: la generación de PDF en la nube puede tardar
 };
@@ -88,7 +89,9 @@ class PDFDownloadService {
                     'Authorization': `Bearer ${API_CONFIG.apiKey}`,
                     'Content-Type':  'application/json'
                 },
-                body:   JSON.stringify({ url: normalizedUrl, name: safeFilename }),
+                // La API de Ploi Cloud solo acepta el campo "url"
+                // El nombre de archivo lo ponemos nosotros al guardar
+                body:   JSON.stringify({ url: normalizedUrl }),
                 signal: controller.signal
             });
 
@@ -101,13 +104,16 @@ class PDFDownloadService {
 
             const contentType = response.headers.get('content-type') || '';
 
-            // Caso A: la API devuelve un JSON con la URL del PDF generado
+            // Caso A: la API devuelve un JSON con la URL del PDF generado (ej: { url: "https://..." })
             if (contentType.includes('application/json')) {
                 const data = await response.json();
-                if (data.url) {
-                    const pdfResponse = await fetch(data.url);
+                // Ploi Cloud devuelve { url: "..." } apuntando al PDF generado
+                const pdfUrl = data.url || data.pdf_url || data.download_url;
+                if (pdfUrl) {
+                    const pdfResponse = await fetch(pdfUrl);
                     return { blob: await pdfResponse.blob(), filename: `${safeFilename}.pdf` };
                 }
+                throw new Error(`API respondió con JSON pero sin URL de descarga: ${JSON.stringify(data)}`);
             }
 
             // Caso B: la API devuelve el archivo PDF directamente como binario
