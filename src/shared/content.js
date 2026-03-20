@@ -213,23 +213,22 @@ async function handleDownloadClick() {
         if (progressTx) progressTx.textContent   = 'Capturando contenido del documento...';
         setStatus('', null);
 
-        const rawTitle = ScribdUtils.extractTitle();
-        const filename = ScribdUtils.sanitizeFilename(rawTitle);
+        const rawTitle  = ScribdUtils.extractTitle();
+        const filename  = ScribdUtils.sanitizeFilename(rawTitle);
 
-        // Intentar capturar el HTML del DOM primero
+        // Intentar capturar HTML del DOM (puede ser null si el reader no está cargado)
+        // En ese caso el background usará la Estrategia 1: fetch directo a Scribd
         const htmlContent = captureRenderedContent();
-
         if (!htmlContent) {
-            throw new Error(
-                'No se encontró contenido renderizado. Asegúrate de que el documento esté completamente cargado y visible.'
-            );
+            console.debug('[SDL] DOM vacío: el background usará fetch directo a Scribd');
         }
 
         if (progressTx) progressTx.textContent = 'Enviando a PDFShift...';
 
         const response = await sendToBackground({
             action:   'generate_pdf',
-            html:     htmlContent,   // ← HTML directo, no URL
+            html:     htmlContent,   // puede ser null: background tiene fallback
+            url:      window.location.href,
             filename: filename
         });
 
