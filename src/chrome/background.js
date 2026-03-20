@@ -47,55 +47,65 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 // ─── Orquestador principal ────────────────────────────────────────────────
 async function generateAndDownload({ html: domHtml, url, accessKey, filename }) {
     const docId = extractDocId(url);
-    console.log('[SDL BG] docId:', docId, '| accessKey:', accessKey ? 'sí' : 'no', '| domHtml:', domHtml ? 'sí' : 'no');
+    console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // ── Estrategia 1: usar el access_key encontrado por el content script ─
-    // El embed URL con access_key es pública: no necesita cookies ni credenciales.
-    // Fé diseñada para embeds externos (iframes en otros sitios).
-    if (docId && accessKey) {
+    // ── Estrategia 0: descarga directa de Scribd (endpoint de suscriptores) ───
+    // Si el usuario tiene suscripción, Scribd devuelve el PDF directamente.
+    if (docId) {
         try {
-            console.log('[SDL BG] Estrategia 1: fetcheando embed con access_key...');
-            const embedHtml = await fetchEmbedWithKey(docId, accessKey);
-            console.log('[SDL BG] Embed obtenido, enviando a PDFShift...');
-            const objectUrl = await convertHtmlToPdf(embedHtml, filename);
+            const directUrl = await tryScribdDirectDownload(docId);
+            if (directUrl) {
+                console.log('[SDL BG] Estrategia 0 OK: PDF directo de Scribd');
+                return triggerDownload(directUrl, `${filename}.pdf`);
+            }
+        } catch (err) {
+            console.log('[SDL BG] Estrategia 0 falló:', err.message);
+        }
+    }
+
+    // ── Estrategia 1: HTML del body capturado por content.js ────────────
+    if (domHtml) {
+        try {
+            console.log('[SDL BG] Estrategia 1: convirtiendo HTML del DOM a PDF...');
+            const objectUrl = await convertHtmlToPdf(domHtml);
             return triggerDownload(objectUrl, `${filename}.pdf`);
         } catch (err) {
             console.log('[SDL BG] Estrategia 1 falló:', err.message);
         }
     }
 
-    // ── Estrategia 2: background busca access_key fetcheando pagina de Scribd ─
-    if (docId && !accessKey) {
-        try {
-            console.log('[SDL BG] Estrategia 2: fetch de página Scribd para obtener access_key...');
-            const embedHtml = await fetchScribdEmbed(docId);
-            if (embedHtml) {
-                console.log('[SDL BG] Embed vía fetch de página OK');
-                const objectUrl = await convertHtmlToPdf(embedHtml, filename);
-                return triggerDownload(objectUrl, `${filename}.pdf`);
-            }
-        } catch (err) {
-            console.log('[SDL BG] Estrategia 2 falló:', err.message);
-        }
-    }
-
-    // ── Estrategia 3: HTML del DOM capturado por content.js ───────────────
-    if (domHtml) {
-        try {
-            console.log('[SDL BG] Estrategia 3: usando HTML del DOM...');
-            const objectUrl = await convertHtmlToPdf(domHtml, filename);
-            return triggerDownload(objectUrl, `${filename}.pdf`);
-        } catch (err) {
-            console.log('[SDL BG] Estrategia 3 falló:', err.message);
-        }
-    }
-
     throw new Error(
-        'No se pudo obtener el contenido. ' +
-        (accessKey ? '' : 'El access_key no fue encontrado en la página. ') +
-        'Asegúrate de que el documento esté completamente cargado.'
+        domHtml
+            ? 'El servidor PDF rechazó el contenido capturado.'
+            : 'No se pudo obtener el contenido. La cuenta de Scribd no tiene permisos de descarga o el documento no está disponible.'
     );
 }
+
+// ─── Estrategia 0: descarga directa de Scribd ────────────────────────
+async function tryScribdDirectDownload(docId) {
+    const cookies   = await getScribdCookies();
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+    const response = await fetch(
+        `https://www.scribd.com/document_downloads/download/${docId}?extension=pdf`,
+        {
+            method:   'GET',
+            headers:  { ...SCRIBD_HEADERS, Cookie: cookieStr },
+            redirect: 'follow'
+        }
+    );
+
+    const contentType = response.headers.get('content-type') || '';
+    console.log('[SDL BG] Scribd download status:', response.status, '| type:', contentType.substring(0, 40));
+
+    if (response.ok && (contentType.includes('pdf') || contentType.includes('octet-stream'))) {
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+    }
+
+    return null;  // No disponible (no suscriptor, o formato no reconocido)
+}
+
 
 /**
  * Estrategia 1: fetchear el embed usando un access_key ya conocido.

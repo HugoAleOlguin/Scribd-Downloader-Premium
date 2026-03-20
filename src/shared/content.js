@@ -76,59 +76,35 @@ const OVERLAY_HTML = `
  * Selectores probados en orden de precisión.
  */
 function captureRenderedContent() {
-    const READER_SELECTORS = [
-        // Reader moderno de Scribd (React)
-        '[class*="reader_and_document_bar"]',
-        '[class*="outer_page"]',
-        '[class*="page_container"]',
-        '#book-inner',
-        '#book-page-container',
-        '.reader_container',
-        '.reading_mode',
-        '.document_content',
-        '.doc_page_container',
-        // Fallback genérico: el bloque de contenido principal
-        'main article',
-        'main',
-        '#main-content'
+    // Scribd usa React con CSS-in-JS: los classnames son hashes (".jcT8Ie"), no estables.
+    // Usar document.body directamente es la única forma confiable de capturar el contenido.
+    const clone = document.body.cloneNode(true);
+
+    // Eliminar elementos de UI que no deben ir en el PDF
+    const UI_SELECTORS = [
+        '#sdl-overlay',          // nuestra UI
+        'script', 'style',        // scripts e inline styles
+        'noscript',
+        'nav', 'header', 'footer',
+        '[role="banner"]', '[role="navigation"]', '[role="complementary"]'
     ];
+    UI_SELECTORS.forEach(sel => {
+        clone.querySelectorAll(sel).forEach(el => el.remove());
+    });
 
-    let container = null;
-    for (const sel of READER_SELECTORS) {
-        const el = document.querySelector(sel);
-        // Verificar que tenga contenido mínimo (no sea un div vacío)
-        if (el && el.innerText.trim().length > 200) {
-            container = el;
-            console.debug('[SDL] Contenedor encontrado:', sel);
-            break;
-        }
-    }
-
-    if (!container) {
-        console.warn('[SDL] No se encontró un contenedor de contenido válido.');
+    // Verificar que queda contenido suficiente
+    const textLength = (clone.textContent || '').trim().length;
+    console.log('[SDL] Texto en body tras limpiar UI:', textLength, 'chars');
+    if (textLength < 100) {
+        console.warn('[SDL] Body tiene menos de 100 chars — posible paywall o documento de imágenes');
         return null;
     }
-
-    // Clonar para no modificar el DOM original
-    const clone = container.cloneNode(true);
 
     // Hacer absolutas todas las URLs de imágenes relativas
     clone.querySelectorAll('img[src]').forEach(img => {
         try {
             img.src = new URL(img.getAttribute('src'), window.location.origin).href;
-        } catch { /* ignorar URLs inválidas */ }
-    });
-
-    // Eliminar elementos de UI que no deben ir en el PDF
-    const UI_SELECTORS = [
-        '[id*="sdl"]', '[class*="sdl"]',          // nuestra propia UI
-        '[class*="toolbar"]', '[class*="header"]',  // UI del lector
-        '[class*="navigation"]', '[class*="nav"]',
-        'nav', 'header', 'footer',
-        '[aria-hidden="true"]'
-    ];
-    UI_SELECTORS.forEach(sel => {
-        clone.querySelectorAll(sel).forEach(el => el.remove());
+        } catch { /* ignorar */ }
     });
 
     const title = ScribdUtils.extractTitle();
@@ -139,27 +115,17 @@ function captureRenderedContent() {
     <meta charset="UTF-8">
     <title>${escapeHtml(title)}</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: Georgia, 'Times New Roman', serif;
-            font-size: 12pt;
-            line-height: 1.7;
-            color: #111;
-            background: #fff;
-            padding: 40px;
-            max-width: 800px;
-            margin: 0 auto;
-        }
+        * { box-sizing: border-box; }
+        body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.7;
+               color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
+        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
         h1, h2, h3 { margin: 1em 0 0.5em; }
         p { margin-bottom: 0.8em; }
-        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
-        /* Forzar saltos de página para páginas del lector de Scribd */
-        [class*="page"], .outer_page { page-break-after: always; }
     </style>
 </head>
 <body>
-    <h1 style="font-size:18pt; margin-bottom:24px; border-bottom:1px solid #ddd; padding-bottom:12px;">${escapeHtml(title)}</h1>
-    ${clone.innerHTML}
+<h1 style="font-size:18pt;margin-bottom:24px;border-bottom:1px solid #ddd;padding-bottom:12px;">${escapeHtml(title)}</h1>
+${clone.innerHTML}
 </body>
 </html>`;
 }
