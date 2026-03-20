@@ -103,11 +103,11 @@ img { max-width:100% !important; height:auto; }</style>
 
     const bodyText = document.body.innerText || '';
 
-    // Detectar paywall
+    // Detectar paywall: continuar de todos modos, puede haber preview visible
     const paywallCount = (bodyText.match(/Descarga para leer sin publicidad/gi) || []).length;
     if (paywallCount > 3) {
-        console.warn('[SDL] Paywall detectado (' + paywallCount + ' páginas bloqueadas).');
-        return 'PAYWALL';
+        console.warn('[SDL] Paywall detectado (' + paywallCount + ' páginas bloqueadas) — intentando con lo visible');
+        // No retornar PAYWALL: dejar que el background intente el embed URL con cookies
     }
 
     // Intentar aislar el contenido del documento usando <main> o [role="main"].
@@ -251,18 +251,10 @@ async function handleDownloadClick() {
         const accessKey  = ScribdUtils.extractAccessKey();
         const htmlContent = captureRenderedContent();
 
-        if (htmlContent === 'PAYWALL') {
-            throw new Error(
-                'Este documento está bloqueado. Necesitas suscribirte a Scribd o subir '
-                + '5 documentos para acceder al contenido.'
-            );
-        }
-
         const capturedHtml = htmlContent ? htmlContent.html  : null;
         const printMode    = htmlContent ? htmlContent.printMode : false;
 
-        console.log('[SDL] HTML del DOM:', capturedHtml ? `sí (${capturedHtml.length} chars)` : 'NO encontrado');
-        console.log('[SDL] printMode:', printMode);
+        console.log('[SDL] HTML del DOM:', capturedHtml ? `sí (${capturedHtml.length} chars)` : 'nada visible');
 
         if (progressTx) progressTx.textContent = 'Enviando a PDFShift...';
 
