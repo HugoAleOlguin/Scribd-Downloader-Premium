@@ -189,13 +189,10 @@ function stripGdprScripts(html) {
 }
 
 function prepareEmbedHtml(html) {
-
     const overrideCSS = `<style id="sdl-overrides">
-html, body { overflow-x: hidden !important; }
-* { max-width: 100% !important; box-sizing: border-box; }
-img { max-width: 100% !important; height: auto !important; display: block; }
-[class*="toolbar_container"], [class*="toolbar"],
-[class*="DocControls"], [class*="nav"] { display: none !important; }
+* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+[class*="toolbar_container"], [class*="DocControls"],
+#autosave_dialog, .grecaptcha-badge { display: none !important; }
 [class*="osano"], [id*="osano"], [class*="consent"], [id*="consent"],
 [class*="cookie"], [id*="cookie"], [class*="gdpr"], [id*="gdpr"],
 [role="dialog"][aria-modal="true"], .sp-message-container { display: none !important; }
@@ -310,9 +307,10 @@ async function convertHtmlToPdf(htmlContent) {
     let response;
     try {
         const payload = {
-            source:  htmlContent,
-            format:  'A4',
-            delay:   6000
+            source:   htmlContent,
+            format:   'A4',
+            delay:    6000,
+            viewport: { width: 1024, height: 1448 }
         };
         response = await fetch(PDFSHIFT.endpoint, {
             method:  'POST',

@@ -472,14 +472,12 @@ function extractAccessKey(html) {
  */
 function prepareEmbedHtml(html) {
     const overrideCSS = `<style id="sdl-overrides">
-/* Fix: prevenir overflow horizontal */
-html, body { overflow-x: hidden !important; }
-* { max-width: 100% !important; box-sizing: border-box; }
-img { max-width: 100% !important; height: auto !important; display: block; }
+/* Preservar colores de fondo al imprimir/capturar */
+* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 
-/* Ocultar UI de Scribd (toolbar, controles de navegación) */
-[class*="toolbar_container"], [class*="toolbar"],
-[class*="DocControls"], [class*="nav"] { display: none !important; }
+/* Ocultar UI de Scribd */
+[class*="toolbar_container"], [class*="DocControls"],
+#autosave_dialog, .grecaptcha-badge { display: none !important; }
 
 /* Ocultar GDPR / Osano consent overlay */
 [class*="osano"], [id*="osano"],
@@ -549,10 +547,12 @@ async function convertHtmlToPdf(htmlContent, printMode = false) {
     const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
 
     const payload = {
-        source:  htmlContent,
-        format:  'A4',
+        source:   htmlContent,
+        format:   'A4',
         // DocumentManager necesita tiempo para crear los bordes/tablas via JS
-        delay:   6000,
+        delay:    6000,
+        // Viewport ancho para que el documento de Scribd (902px) no se clippee
+        viewport: { width: 1024, height: 1448 },
         ...(printMode && { media_type: 'print' })
     };
 
