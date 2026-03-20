@@ -14,6 +14,8 @@
  *   - El atributo data-sdl-key en <html> es visible tanto en MAIN como en el mundo aislado
  */
 (function interceptScribdRequests() {
+    // Marcador: permite al content script verificar que este script corrió
+    document.documentElement.setAttribute('data-sdl-interceptor', 'active');
 
     function captureKeyFromUrl(url) {
         if (!url) return;

@@ -215,6 +215,24 @@ async function handleDownloadClick() {
 
         const rawTitle   = ScribdUtils.extractTitle();
         const filename   = ScribdUtils.sanitizeFilename(rawTitle);
+
+        // ── DIAGNÓSTICO (quitar después de encontrar el problema) ──────────
+        const interceptorActivo = document.documentElement.getAttribute('data-sdl-interceptor');
+        console.log('[SDL DIAG] Interceptor corrió:', interceptorActivo || 'NO');
+
+        const iframes = document.querySelectorAll('iframe');
+        console.log('[SDL DIAG] Iframes en el DOM:', iframes.length);
+        iframes.forEach((f, i) => {
+            console.log(`[SDL DIAG]   iframe[${i}] src:`, f.getAttribute('src') || f.src || '(vacío)');
+        });
+
+        // Loggear las primeras 10 claves de window que empiezan con _ o tienen 'scribd'
+        const windowKeys = Object.keys(window)
+            .filter(k => k.startsWith('_') || k.toLowerCase().includes('scribd') || k.toLowerCase().includes('page'))
+            .slice(0, 15);
+        console.log('[SDL DIAG] window globals relevantes:', windowKeys);
+        // ────────────────────────────────────────────────────────────────────
+
         const accessKey  = ScribdUtils.extractAccessKey();
         const htmlContent = captureRenderedContent();
 
