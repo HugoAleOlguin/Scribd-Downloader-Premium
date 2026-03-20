@@ -310,7 +310,8 @@ async function convertHtmlToPdf(htmlContent) {
             source:   htmlContent,
             format:   'A4',
             delay:    6000,
-            viewport: '1024x1448'
+            zoom:     0.75,
+            margin:   '0',
         };
         response = await fetch(PDFSHIFT.endpoint, {
             method:  'POST',
