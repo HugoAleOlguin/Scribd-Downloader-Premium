@@ -40,17 +40,15 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // ── Estrategia 0: URL del embed → PDFShift (renderizado COMPLETO en Chromium) ────
+    // ── Estrategia 0: embed HTML + CSS inlineado desde scribdassets.com ────────
     if (docId) {
         try {
-            const cookies  = await getScribdCookies();
-            const embedUrl = [
-                `https://www.scribd.com/embeds/${docId}/content`,
-                `?start_page=1&view_mode=scroll&access_key=${SCRIBD_UNIVERSAL_KEY}`,
-                `&show_recommendations=false&jsapi=true`
-            ].join('');
-            console.log('[SDL BG] Estrategia 0: URL embeds → PDFShift...');
-            const objectUrl = await convertUrlToPdf(embedUrl, cookies);
+            console.log('[SDL BG] Estrategia 0: embed HTML + CSS inlineado...');
+            const rawHtml  = await fetchRawEmbed(docId);
+            const stripped = stripScripts(rawHtml);
+            const inlined  = await inlineExternalCSS(stripped);
+            const prepared = prepareEmbedHtml(inlined);
+            const objectUrl = await convertHtmlToPdf(prepared);
             console.log('[SDL BG] Estrategia 0 OK');
             return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
                 .then(id => ({ downloadId: id }));
@@ -206,37 +204,56 @@ img { max-width: 100% !important; height: auto !important; display: block; }
     return overrideCSS + html;
 }
 
-async function convertUrlToPdf(url, cookies = []) {
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
+async function fetchRawEmbed(docId) {
+    const cookies   = await getScribdCookies();
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const url = [
+        `https://www.scribd.com/embeds/${docId}/content`,
+        `?start_page=1&view_mode=scroll&access_key=${SCRIBD_UNIVERSAL_KEY}`,
+        `&show_recommendations=false`
+    ].join('');
+    const res = await fetch(url, { headers: { ...SCRIBD_HEADERS, Cookie: cookieStr } });
+    if (!res.ok) throw new Error(`Embed ${res.status}`);
+    const html = await res.text();
+    if (html.length < 5_000) throw new Error('Embed HTML muy corto');
+    return html;
+}
 
-    const pdfCookies = cookies.map(c => ({ name: c.name, value: c.value }));
+async function inlineExternalCSS(html) {
+    const hrefRe  = /\bhref=["']([^"']+)["']/i;
+    const linkTags = [...html.matchAll(/<link\b[^>]*\brel=["']stylesheet["'][^>]*\/?>/gi)].map(m => m[0]);
+    if (!linkTags.length) return html;
+    console.log('[SDL BG] CSS inline: fetching', linkTags.length, 'archivos CSS...');
 
-    const payload = {
-        source:  url,
-        format:  'A4',
-        delay:   4000,
-        margin:  { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
-        ...(pdfCookies.length > 0 && { cookies: pdfCookies })
-    };
+    const jobs = linkTags.map(async (tag) => {
+        const hrefM = tag.match(hrefRe);
+        if (!hrefM) return { tag, css: null };
+        let url = hrefM[1];
+        if (url.startsWith('//')) url = 'https:' + url;
+        if (!url.startsWith('http')) return { tag, css: null };
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 12_000);
+            const res = await fetch(url, {
+                headers: { Accept: 'text/css,*/*', 'User-Agent': SCRIBD_HEADERS['User-Agent'] },
+                signal: controller.signal
+            });
+            clearTimeout(timer);
+            return { tag, css: res.ok ? await res.text() : null };
+        } catch { return { tag, css: null }; }
+    });
 
-    let response;
-    try {
-        response = await fetch(PDFSHIFT.endpoint, {
-            method:  'POST',
-            headers: { 'X-API-Key': PDFSHIFT.apiKey, 'Content-Type': 'application/json' },
-            body:    JSON.stringify(payload),
-            signal:  controller.signal
-        });
-    } finally {
-        clearTimeout(timeoutId);
+    const results = await Promise.allSettled(jobs);
+    let result = html;
+    let count = 0;
+    for (const r of results) {
+        if (r.status === 'fulfilled' && r.value.css) {
+            result = result.replace(r.value.tag, `<style>\n${r.value.css}\n</style>`);
+            count++;
+        }
     }
-
-    if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
-        throw new Error(`PDFShift URL ${response.status}: ${errText}`);
-    }
-    return URL.createObjectURL(await response.blob());
+    console.log('[SDL BG] CSS inline:', count, '/', linkTags.length, 'inlineados');
+    return result;
 }
 
 // ─── PDFShift ─────────────────────────────────────────────────────────────

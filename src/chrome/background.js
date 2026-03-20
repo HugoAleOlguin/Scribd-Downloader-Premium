@@ -53,20 +53,18 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // ── Estrategia 0: URL del embed → PDFShift (renderizado COMPLETO en Chromium) ────
-    // PDFShift tiene su propio navegador Chromium. Al darle la URL directa del embed
-    // con las cookies del usuario, React carga, los CSS se aplican, y el PDF es
-    // idéntico al documento visible en pantalla — incluyendo tablas, negritas, colores.
+    // ── Estrategia 0: embed HTML + CSS inlineado desde scribdassets.com ────────
+    // PDFShift NO puede acceder a Scribd (IP bloqueada). Nosotros sí.
+    // Solución: fetchear el HTML del embed + sus CSS en el background,
+    // inlinearlos, y enviar un HTML autocontenido sin dependencias externas.
     if (docId) {
         try {
-            const cookies  = await getScribdCookies();
-            const embedUrl = [
-                `https://www.scribd.com/embeds/${docId}/content`,
-                `?start_page=1&view_mode=scroll&access_key=${SCRIBD_UNIVERSAL_KEY}`,
-                `&show_recommendations=false&jsapi=true`
-            ].join('');
-            console.log('[SDL BG] Estrategia 0: URL embeds → PDFShift...');
-            const objectUrl = await convertUrlToPdf(embedUrl, cookies);
+            console.log('[SDL BG] Estrategia 0: embed HTML + CSS inlineado...');
+            const rawHtml  = await fetchRawEmbed(docId);
+            const stripped = stripScripts(rawHtml);
+            const inlined  = await inlineExternalCSS(stripped);
+            const prepared = prepareEmbedHtml(inlined);
+            const objectUrl = await convertHtmlToPdf(prepared, false);
             console.log('[SDL BG] Estrategia 0 OK');
             return triggerDownload(objectUrl, `${filename}.pdf`);
         } catch (err) {
@@ -199,8 +197,85 @@ async function tryScribdDirectDownload(docId) {
 
 
 /**
- * Fetchea el embed de Scribd con un access_key.
- * @param {boolean} withCookies - Pasar cookies del usuario (necesario para evitar GDPR overlay).
+ * Fetchea el HTML crudo del embed de Scribd usando el key universal + cookies.
+ */
+async function fetchRawEmbed(docId) {
+    const cookies   = await getScribdCookies();
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+    const url = [
+        `https://www.scribd.com/embeds/${docId}/content`,
+        `?start_page=1&view_mode=scroll&access_key=${SCRIBD_UNIVERSAL_KEY}`,
+        `&show_recommendations=false`
+    ].join('');
+
+    const res = await fetch(url, {
+        headers: { ...SCRIBD_HEADERS, Cookie: cookieStr }
+    });
+
+    if (!res.ok) throw new Error(`Embed ${res.status}`);
+    const html = await res.text();
+    if (html.length < 5_000) throw new Error('Embed HTML muy corto (' + html.length + ' chars)');
+    return html;
+}
+
+/**
+ * Reemplaza todos los <link rel="stylesheet"> del HTML por <style> inline.
+ * El background script sí puede acceder a scribdassets.com; PDFShift no puede.
+ * El resultado es un HTML autocontenido sin dependencias externas de CSS.
+ */
+async function inlineExternalCSS(html) {
+    const linkRe = /<link\b[^>]*\brel=["']stylesheet["'][^>]*\/?>/gi;
+    const hrefRe = /\bhref=["']([^"']+)["']/i;
+
+    const linkTags = [...html.matchAll(/<link\b[^>]*\brel=["']stylesheet["'][^>]*\/?>/gi)]
+        .map(m => m[0]);
+
+    if (!linkTags.length) {
+        console.log('[SDL BG] CSS inline: no se encontraron <link> stylesheet');
+        return html;
+    }
+    console.log('[SDL BG] CSS inline: fetching', linkTags.length, 'archivos CSS...');
+
+    const jobs = linkTags.map(async (tag) => {
+        const hrefM = tag.match(hrefRe);
+        if (!hrefM) return { tag, css: null };
+
+        let url = hrefM[1];
+        if (url.startsWith('//')) url = 'https:' + url;
+        if (!url.startsWith('http')) return { tag, css: null };
+
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 12_000);
+            const res = await fetch(url, {
+                headers: { Accept: 'text/css,*/*', 'User-Agent': SCRIBD_HEADERS['User-Agent'] },
+                signal: controller.signal
+            });
+            clearTimeout(timer);
+            const css = res.ok ? await res.text() : null;
+            return { tag, css };
+        } catch {
+            return { tag, css: null };
+        }
+    });
+
+    const results = await Promise.allSettled(jobs);
+
+    let result = html;
+    let inlinedCount = 0;
+    for (const r of results) {
+        if (r.status === 'fulfilled' && r.value.css) {
+            result = result.replace(r.value.tag, `<style>\n${r.value.css}\n</style>`);
+            inlinedCount++;
+        }
+    }
+    console.log('[SDL BG] CSS inline:', inlinedCount, '/', linkTags.length, 'inlineados');
+    return result;
+}
+
+/**
+ * Fetchea el embed usando un access_key ya conocido (para páginas externas).
  */
 async function fetchEmbedWithKey(docId, accessKey, withCookies = false) {
     const embedUrl = [
