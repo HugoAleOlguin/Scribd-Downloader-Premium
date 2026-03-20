@@ -65,8 +65,14 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
             const stripped = stripGdprScripts(rawHtml);
             const withCSS  = await inlineExternalCSS(stripped);
             const withImgs = await inlinePageImages(withCSS, cookies);
-            const prepared = prepareEmbedHtml(withImgs);
-            const objectUrl = await convertHtmlToPdf(prepared, false);
+
+            // Calcular zoom para ajustar el ancho real del documento a A4
+            const pageDims = extractPageDimensions(rawHtml);
+            const fitZoom  = calculateFitZoom(pageDims.width);
+            console.log('[SDL BG] Page dims:', pageDims.width, 'x', pageDims.height, 'px | zoom:', fitZoom);
+
+            const prepared  = prepareEmbedHtml(withImgs, pageDims);
+            const objectUrl = await convertHtmlToPdf(prepared, false, fitZoom);
             console.log('[SDL BG] Estrategia 0 OK');
             return triggerDownload(objectUrl, `${filename}.pdf`);
         } catch (err) {
@@ -470,7 +476,32 @@ function extractAccessKey(html) {
  * - Elimina scripts (ya strippeados antes) e inyecta solo un CSS de override.
  * NO reemplaza el HTML: lo aumenta. Esto preserva toda la fidelidad visual.
  */
-function prepareEmbedHtml(html) {
+
+/**
+ * Extrae el width/height de la primera outer_page del HTML del embed.
+ * Scribd informa las dimensiones reales del documento en px.
+ */
+function extractPageDimensions(html) {
+    const m = html.match(/class="outer_page[^"]*"[^>]*style="width:(\d+)px[^;]*;?\s*height:(\d+)px/);
+    if (m) return { width: parseInt(m[1]), height: parseInt(m[2]) };
+    // Alternativa: buscar el inner_page
+    const m2 = html.match(/id="page\d+"[^>]*style="width:\s*(\d+)px;\s*height:(\d+)px/);
+    if (m2) return { width: parseInt(m2[1]), height: parseInt(m2[2]) };
+    return { width: 902, height: 1167 };  // Scribd default DOCX
+}
+
+/**
+ * Calcula el zoom máximo para que el documento quepa en A4 sin clippear.
+ * PDFShift renderiza A4 a 96dpi → ~794px de ancho usable sin márgenes.
+ */
+function calculateFitZoom(pageWidthPx) {
+    const A4_USABLE_PX = 790;  // A4 a 96dpi menos margen mínimo
+    const zoom = A4_USABLE_PX / pageWidthPx;
+    // Limitar entre 0.5 y 1.0
+    return Math.min(1.0, Math.max(0.5, parseFloat(zoom.toFixed(2))));
+}
+
+function prepareEmbedHtml(html, pageDims = { width: 902, height: 1167 }) {
     // CSS de override: preservar colores y ocultar UI del embed.
     // Estructura del embed: body > .auto__embeds_new_show > .document_scroller > .document_container
     // El toolbar/header/footer de Scribd son hermanos de .document_scroller
@@ -507,18 +538,39 @@ body > script, #fb-root { display: none !important; }
 .sp-message-container { display: none !important; }
 </style>`;
 
-    // Script que corre a los 500ms para ocultar clases que React genera dinámicamente
+    // Script que corre a los 500ms para ocultar UI y triggerear carga de todas las páginas
     const cleanupScript = `<script>
 setTimeout(function() {
-    // Ocultar cualquier UI del embed que no sea el documento
+    // 1. Ocultar UI del embed
     document.querySelectorAll('[class*="toolbar"], [class*="Toolbar"], ' +
         '[class*="EmbedHeader"], [class*="EmbedFooter"], ' +
         '[class*="action_bar"], [class*="ActionBar"]').forEach(function(el) {
-        // No ocultar si está dentro del visor del documento
         if (!el.closest('.outer_page_container') && !el.closest('.document_container')) {
             el.style.setProperty('display', 'none', 'important');
         }
     });
+
+    // 2. Scroll forzado para triggerear lazy loading de TODAS las páginas
+    // DocumentManager solo renderiza páginas visibles; hay que scrollear para que las cargue todas
+    var scroller = document.querySelector('.document_scroller') || document.documentElement;
+    var totalH = Math.max(scroller.scrollHeight, document.body.scrollHeight);
+    var step   = 600;           // px por salto
+    var i      = 0;
+    var maxIt  = Math.ceil(totalH / step) + 5;
+
+    function scrollStep() {
+        scroller.scrollTop = i * step;
+        document.documentElement.scrollTop = i * step;
+        i++;
+        if (i <= maxIt) {
+            setTimeout(scrollStep, 80);   // 80ms por paso = ~50ms de margen
+        } else {
+            // Regresa al inicio para que PDFShift empiece desde arriba
+            scroller.scrollTop = 0;
+            document.documentElement.scrollTop = 0;
+        }
+    }
+    scrollStep();
 }, 500);
 </script>`;
 
@@ -580,16 +632,17 @@ async function convertUrlToPdf(url, cookies = []) {
 }
 
 // ─── HTML → PDFShift ─────────────────────────────────────────────
-async function convertHtmlToPdf(htmlContent, printMode = false) {
+async function convertHtmlToPdf(htmlContent, printMode = false, zoom = 0.85) {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
 
     const payload = {
         source:   htmlContent,
         format:   'A4',
-        delay:    6000,
-        zoom:     0.75,
-        margin:   '0',
+        // Tiempo para DocumentManager + scroll de todas las páginas (500ms setup + 80ms×pasos + buffer)
+        delay:    8000,
+        zoom:     zoom,
+        margin:   '5mm',
         ...(printMode && { media_type: 'print' })
     };
 

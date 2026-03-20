@@ -48,9 +48,12 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
             const rawHtml  = await fetchRawEmbed(docId);
             const stripped = stripGdprScripts(rawHtml);
             const withCSS  = await inlineExternalCSS(stripped);
-            const withImgs = await inlinePageImages(withCSS, cookies);
-            const prepared = prepareEmbedHtml(withImgs);
-            const objectUrl = await convertHtmlToPdf(prepared);
+            const withImgs  = await inlinePageImages(withCSS, cookies);
+            const pageDims  = extractPageDimensions(rawHtml);
+            const fitZoom   = calculateFitZoom(pageDims.width);
+            console.log('[SDL BG] Page dims:', pageDims.width + 'x' + pageDims.height + ' | zoom:', fitZoom);
+            const prepared  = prepareEmbedHtml(withImgs, pageDims);
+            const objectUrl = await convertHtmlToPdf(prepared, fitZoom);
             console.log('[SDL BG] Estrategia 0 OK');
             return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
                 .then(id => ({ downloadId: id }));
@@ -188,7 +191,20 @@ function stripGdprScripts(html) {
         .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');
 }
 
-function prepareEmbedHtml(html) {
+function extractPageDimensions(html) {
+    const m = html.match(/class="outer_page[^"]*"[^>]*style="width:(\d+)px[^;]*;?\s*height:(\d+)px/);
+    if (m) return { width: parseInt(m[1]), height: parseInt(m[2]) };
+    const m2 = html.match(/id="page\d+"[^>]*style="width:\s*(\d+)px;\s*height:(\d+)px/);
+    if (m2) return { width: parseInt(m2[1]), height: parseInt(m2[2]) };
+    return { width: 902, height: 1167 };
+}
+
+function calculateFitZoom(pageWidthPx) {
+    const zoom = 790 / pageWidthPx;
+    return Math.min(1.0, Math.max(0.5, parseFloat(zoom.toFixed(2))));
+}
+
+function prepareEmbedHtml(html, pageDims = { width: 902, height: 1167 }) {
     const overrideCSS = `<style id="sdl-overrides">
 * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 body > div:not([data-track_category="embeds"]),
@@ -213,6 +229,16 @@ setTimeout(function() {
             el.style.setProperty('display', 'none', 'important');
         }
     });
+    var scroller = document.querySelector('.document_scroller') || document.documentElement;
+    var step = 600, i = 0, maxIt = Math.ceil(Math.max(scroller.scrollHeight, document.body.scrollHeight) / step) + 5;
+    function scrollStep() {
+        scroller.scrollTop = i * step;
+        document.documentElement.scrollTop = i * step;
+        i++;
+        if (i <= maxIt) setTimeout(scrollStep, 80);
+        else { scroller.scrollTop = 0; document.documentElement.scrollTop = 0; }
+    }
+    scrollStep();
 }, 500);
 </script>`;
     let result = html;
@@ -318,7 +344,7 @@ async function inlinePageImages(html, cookies = []) {
 }
 
 // ─── PDFShift ─────────────────────────────────────────────────────────────
-async function convertHtmlToPdf(htmlContent) {
+async function convertHtmlToPdf(htmlContent, zoom = 0.85) {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
 
@@ -327,9 +353,9 @@ async function convertHtmlToPdf(htmlContent) {
         const payload = {
             source:   htmlContent,
             format:   'A4',
-            delay:    6000,
-            zoom:     0.75,
-            margin:   '0',
+            delay:    8000,
+            zoom:     zoom,
+            margin:   '5mm',
         };
         response = await fetch(PDFSHIFT.endpoint, {
             method:  'POST',
