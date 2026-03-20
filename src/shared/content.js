@@ -76,58 +76,56 @@ const OVERLAY_HTML = `
  * Selectores probados en orden de precisión.
  */
 function captureRenderedContent() {
-    // Scribd usa React con CSS-in-JS: los classnames son hashes (".jcT8Ie"), no estables.
-    // Usar document.body directamente es la única forma confiable de capturar el contenido.
+    const bodyText = document.body.innerText || '';
+
+    // ─ Detectar paywall: Scribd muestra este texto por cada página bloqueada ─
+    const paywallCount = (bodyText.match(/Descarga para leer sin publicidad/gi) || []).length;
+    if (paywallCount > 3) {
+        console.warn('[SDL] Paywall detectado (' + paywallCount + ' páginas bloqueadas). El documento requiere suscripción.');
+        return 'PAYWALL';
+    }
+
+    // ─ Clonar body y eliminar agresivamente todo lo que no es contenido del libro ─
     const clone = document.body.cloneNode(true);
-
-    // Eliminar elementos de UI que no deben ir en el PDF
-    const UI_SELECTORS = [
-        '#sdl-overlay',          // nuestra UI
-        'script', 'style',        // scripts e inline styles
-        'noscript',
+    [
+        '#sdl-overlay', 'script', 'style', 'noscript', 'iframe',
         'nav', 'header', 'footer',
-        '[role="banner"]', '[role="navigation"]', '[role="complementary"]'
-    ];
-    UI_SELECTORS.forEach(sel => {
-        clone.querySelectorAll(sel).forEach(el => el.remove());
-    });
+        '[role="banner"]', '[role="navigation"]', '[role="complementary"]',
+        '[role="dialog"]', '[role="alertdialog"]',
+        // Elementos de UI de Scribd por posición/función semántica
+        '[class*="toolbar"]', '[class*="sidebar"]', '[class*="recommendation"]',
+        '[class*="header"]', '[class*="footer"]', '[class*="nav"]',
+        '[class*="modal"]', '[class*="banner"]', '[class*="ad"]',
+        // Secciones de Scribd
+        '[data-e2e="related-docs"]', '[data-e2e="toolbar"]'
+    ].forEach(sel => clone.querySelectorAll(sel).forEach(el => el.remove()));
 
-    // Verificar que queda contenido suficiente
-    const textLength = (clone.textContent || '').trim().length;
-    console.log('[SDL] Texto en body tras limpiar UI:', textLength, 'chars');
-    if (textLength < 100) {
-        console.warn('[SDL] Body tiene menos de 100 chars — posible paywall o documento de imágenes');
+    const cleanText = (clone.textContent || '').trim();
+    console.log('[SDL] Texto limpio:', cleanText.length, 'chars');
+
+    if (cleanText.length < 200) {
+        console.warn('[SDL] Contenido insuficiente tras limpiar UI.');
         return null;
     }
 
-    // Hacer absolutas todas las URLs de imágenes relativas
+    // Convertir imágenes a URLs absolutas
     clone.querySelectorAll('img[src]').forEach(img => {
-        try {
-            img.src = new URL(img.getAttribute('src'), window.location.origin).href;
-        } catch { /* ignorar */ }
+        try { img.src = new URL(img.getAttribute('src'), window.location.origin).href; } catch {}
     });
 
     const title = ScribdUtils.extractTitle();
-
     return `<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>${escapeHtml(title)}</title>
-    <style>
-        * { box-sizing: border-box; }
-        body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.7;
-               color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
-        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
-        h1, h2, h3 { margin: 1em 0 0.5em; }
-        p { margin-bottom: 0.8em; }
-    </style>
-</head>
+<html lang="es"><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title>
+<style>
+    body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.7; color: #111;
+           background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
+    img  { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+    h1,h2,h3 { margin: 1em 0 0.5em; } p { margin-bottom: 0.8em; }
+</style></head>
 <body>
 <h1 style="font-size:18pt;margin-bottom:24px;border-bottom:1px solid #ddd;padding-bottom:12px;">${escapeHtml(title)}</h1>
 ${clone.innerHTML}
-</body>
-</html>`;
+</body></html>`;
 }
 
 function escapeHtml(str) {
@@ -201,6 +199,13 @@ async function handleDownloadClick() {
 
         const accessKey  = ScribdUtils.extractAccessKey();
         const htmlContent = captureRenderedContent();
+
+        if (htmlContent === 'PAYWALL') {
+            throw new Error(
+                'Este documento está bloqueado. Necesitas suscribirte a Scribd o subir '
+                + '5 documentos para acceder al contenido.'
+            );
+        }
 
         console.log('[SDL] access_key en DOM:', accessKey ? `sí (${accessKey.substring(0, 10)}...)` : 'NO encontrado');
         console.log('[SDL] HTML del DOM:', htmlContent ? `sí (${htmlContent.length} chars)` : 'NO encontrado');
