@@ -43,11 +43,13 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
     // ── Estrategia 0: embed HTML + CSS inlineado desde scribdassets.com ────────
     if (docId) {
         try {
-            console.log('[SDL BG] Estrategia 0: embed HTML + CSS inlineado...');
+            console.log('[SDL BG] Estrategia 0: embed HTML + CSS + imágenes inlineados...');
+            const cookies = await getScribdCookies();
             const rawHtml  = await fetchRawEmbed(docId);
             const stripped = stripScripts(rawHtml);
-            const inlined  = await inlineExternalCSS(stripped);
-            const prepared = prepareEmbedHtml(inlined);
+            const withCSS  = await inlineExternalCSS(stripped);
+            const withImgs = await inlinePageImages(withCSS, cookies);
+            const prepared = prepareEmbedHtml(withImgs);
             const objectUrl = await convertHtmlToPdf(prepared);
             console.log('[SDL BG] Estrategia 0 OK');
             return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
@@ -253,6 +255,50 @@ async function inlineExternalCSS(html) {
         }
     }
     console.log('[SDL BG] CSS inline:', count, '/', linkTags.length, 'inlineados');
+    return result;
+}
+
+async function inlinePageImages(html, cookies = []) {
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const imgRe = /(<img\b[^>]*\bsrc=")([^"]+)("[^>]*>)/gi;
+    const allSrcs = [];
+    let m;
+    while ((m = imgRe.exec(html)) !== null) allSrcs.push(m[2]);
+    if (!allSrcs.length) return html;
+    console.log('[SDL BG] Imágenes inline: descargando', allSrcs.length, 'imágenes...');
+
+    const cache = new Map();
+    await Promise.allSettled(
+        allSrcs.map(async (src) => {
+            if (cache.has(src)) return;
+            let url = src;
+            if (url.startsWith('//')) url = 'https:' + url;
+            if (!url.startsWith('http')) { cache.set(src, null); return; }
+            try {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 15_000);
+                const res = await fetch(url, {
+                    headers: { ...SCRIBD_HEADERS, Cookie: cookieStr, Referer: 'https://www.scribd.com/' },
+                    signal: controller.signal
+                });
+                clearTimeout(timer);
+                if (!res.ok) { cache.set(src, null); return; }
+                const buffer = await res.arrayBuffer();
+                const mime = res.headers.get('content-type') || 'image/jpeg';
+                const b64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+                cache.set(src, `data:${mime};base64,${b64}`);
+            } catch { cache.set(src, null); }
+        })
+    );
+
+    let count = 0;
+    const result = html.replace(imgRe, (match, pre, src, post) => {
+        const d = cache.get(src);
+        if (!d) return match;
+        count++;
+        return pre + d + post;
+    });
+    console.log('[SDL BG] Imágenes inline:', count, '/', allSrcs.length);
     return result;
 }
 

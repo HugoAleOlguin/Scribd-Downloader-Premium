@@ -59,11 +59,13 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
     // inlinearlos, y enviar un HTML autocontenido sin dependencias externas.
     if (docId) {
         try {
-            console.log('[SDL BG] Estrategia 0: embed HTML + CSS inlineado...');
+            console.log('[SDL BG] Estrategia 0: embed HTML + CSS + imágenes inlineados...');
+            const cookies = await getScribdCookies();
             const rawHtml  = await fetchRawEmbed(docId);
             const stripped = stripScripts(rawHtml);
-            const inlined  = await inlineExternalCSS(stripped);
-            const prepared = prepareEmbedHtml(inlined);
+            const withCSS  = await inlineExternalCSS(stripped);
+            const withImgs = await inlinePageImages(withCSS, cookies);
+            const prepared = prepareEmbedHtml(withImgs);
             const objectUrl = await convertHtmlToPdf(prepared, false);
             console.log('[SDL BG] Estrategia 0 OK');
             return triggerDownload(objectUrl, `${filename}.pdf`);
@@ -271,6 +273,79 @@ async function inlineExternalCSS(html) {
         }
     }
     console.log('[SDL BG] CSS inline:', inlinedCount, '/', linkTags.length, 'inlineados');
+    return result;
+}
+
+/**
+ * Descarga las imágenes de página (img.absimg) y las convierte a data URIs base64.
+ *
+ * Scribd usa un sistema de renderizado híbrido:
+ * - image_layer: JPEG de la página completa (contiene bordes de tabla, fondos, gráficos).
+ * - text_layer: spans posicionados sobre la imagen (solo texto, sin visual).
+ *
+ * PDFShift no puede acceder a html.scribdassets.com (bloqueado por Scribd).
+ * El background sí puede, porque corre en el contexto del navegador del usuario.
+ * Al convertir a base64, el HTML queda 100% autocontenido.
+ */
+async function inlinePageImages(html, cookies = []) {
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+    // Encuentra todas las URL de imágenes en src="..."
+    const imgRe  = /(<img\b[^>]*\bsrc=")([^"]+)("[^>]*>)/gi;
+    const allSrcs = [];
+    let m;
+    while ((m = imgRe.exec(html)) !== null) {
+        allSrcs.push(m[2]);
+    }
+
+    if (!allSrcs.length) {
+        console.log('[SDL BG] Imágenes inline: no se encontraron <img>');
+        return html;
+    }
+    console.log('[SDL BG] Imágenes inline: descargando', allSrcs.length, 'imágenes...');
+
+    // Descargar todas las imágenes concurrentemente
+    const cache = new Map();
+    await Promise.allSettled(
+        allSrcs.map(async (src) => {
+            if (cache.has(src)) return;
+            let url = src;
+            if (url.startsWith('//')) url = 'https:' + url;
+            if (!url.startsWith('http')) { cache.set(src, null); return; }
+
+            try {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 15_000);
+                const res = await fetch(url, {
+                    headers: {
+                        ...SCRIBD_HEADERS,
+                        Cookie: cookieStr,
+                        Referer: 'https://www.scribd.com/'
+                    },
+                    signal: controller.signal
+                });
+                clearTimeout(timer);
+                if (!res.ok) { cache.set(src, null); return; }
+
+                const buffer = await res.arrayBuffer();
+                const mime   = res.headers.get('content-type') || 'image/jpeg';
+                const b64    = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+                cache.set(src, `data:${mime};base64,${b64}`);
+            } catch {
+                cache.set(src, null);
+            }
+        })
+    );
+
+    let inlinedCount = 0;
+    const result = html.replace(imgRe, (match, pre, src, post) => {
+        const dataUri = cache.get(src);
+        if (!dataUri) return match;  // mantener original si falló la descarga
+        inlinedCount++;
+        return pre + dataUri + post;
+    });
+
+    console.log('[SDL BG] Imágenes inline:', inlinedCount, '/', allSrcs.length, 'descargadas');
     return result;
 }
 
