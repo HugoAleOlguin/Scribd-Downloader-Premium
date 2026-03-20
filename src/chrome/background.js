@@ -53,17 +53,22 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
-    // ── Estrategia 0: key universal + cookies del usuario ───────────────
-    // Cookies necesarias para que Scribd no muestre el GDPR overlay.
+    // ── Estrategia 0: URL del embed → PDFShift (renderizado COMPLETO en Chromium) ────
+    // PDFShift tiene su propio navegador Chromium. Al darle la URL directa del embed
+    // con las cookies del usuario, React carga, los CSS se aplican, y el PDF es
+    // idéntico al documento visible en pantalla — incluyendo tablas, negritas, colores.
     if (docId) {
         try {
-            console.log('[SDL BG] Estrategia 0: embed con key universal...');
-            const embedHtml = await fetchEmbedWithKey(docId, SCRIBD_UNIVERSAL_KEY, true);
-            if (embedHtml) {
-                console.log('[SDL BG] Estrategia 0 OK: documento desbloqueado');
-                const objectUrl = await convertHtmlToPdf(embedHtml, false);
-                return triggerDownload(objectUrl, `${filename}.pdf`);
-            }
+            const cookies  = await getScribdCookies();
+            const embedUrl = [
+                `https://www.scribd.com/embeds/${docId}/content`,
+                `?start_page=1&view_mode=scroll&access_key=${SCRIBD_UNIVERSAL_KEY}`,
+                `&show_recommendations=false&jsapi=true`
+            ].join('');
+            console.log('[SDL BG] Estrategia 0: URL embeds → PDFShift...');
+            const objectUrl = await convertUrlToPdf(embedUrl, cookies);
+            console.log('[SDL BG] Estrategia 0 OK');
+            return triggerDownload(objectUrl, `${filename}.pdf`);
         } catch (err) {
             console.log('[SDL BG] Estrategia 0 falló:', err.message);
         }
@@ -338,7 +343,52 @@ img { max-width: 100% !important; height: auto !important; display: block; }
     return overrideCSS + html;
 }
 
-// ─── Estrategia 2: HTML → PDFShift ───────────────────────────────────────
+
+/**
+ * Enviar una URL directamente a PDFShift para que su Chromium headless la renderice.
+ * Con las cookies del usuario, Scribd autentifica la sesión y sirve el documento completo.
+ * PDFShift espera que la página cargue (.page_text visible) antes de capturar.
+ *
+ * Nota: las cookies deben ser solo {name, value} — PDFShift rechaza domain/path/etc.
+ */
+async function convertUrlToPdf(url, cookies = []) {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
+
+    // PDFShift solo acepta {name, value} en el array de cookies
+    const pdfCookies = cookies.map(c => ({ name: c.name, value: c.value }));
+
+    const payload = {
+        source:  url,
+        format:  'A4',
+        // Esperar a que React renderice el contenido del documento
+        delay:   4000,
+        // Margen mínimo para que las páginas no se corten
+        margin:  { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
+        ...(pdfCookies.length > 0 && { cookies: pdfCookies })
+    };
+
+    let response;
+    try {
+        response = await fetch(PDFSHIFT.endpoint, {
+            method:  'POST',
+            headers: { 'X-API-Key': PDFSHIFT.apiKey, 'Content-Type': 'application/json' },
+            body:    JSON.stringify(payload),
+            signal:  controller.signal
+        });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`PDFShift URL ${response.status}: ${errText}`);
+    }
+
+    return URL.createObjectURL(await response.blob());
+}
+
+// ─── HTML → PDFShift ─────────────────────────────────────────────
 async function convertHtmlToPdf(htmlContent, printMode = false) {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
