@@ -46,7 +46,7 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
             console.log('[SDL BG] Estrategia 0: embed HTML + CSS + imágenes inlineados...');
             const cookies = await getScribdCookies();
             const rawHtml  = await fetchRawEmbed(docId);
-            const stripped = stripScripts(rawHtml);
+            const stripped = stripGdprScripts(rawHtml);
             const withCSS  = await inlineExternalCSS(stripped);
             const withImgs = await inlinePageImages(withCSS, cookies);
             const prepared = prepareEmbedHtml(withImgs);
@@ -181,10 +181,10 @@ function extractAccessKey(html) {
     return null;
 }
 
-function stripScripts(html) {
+function stripGdprScripts(html) {
     return html
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<script\b[^>]*\/>/gi, '')
+        .replace(/<script\b[^>]*src=["'][^"']*osano[^"']*["'][^>]*(?:><\/script>|\/?>) */gi, '')
+        .replace(/<script\b[^>]*src=["'][^"']*(?:segment\.com|googletagmanager|sentry\.io|clarity\.ms|stripe\.com|js\.stripe)[^"']*["'][^>]*(?:><\/script>|\/?>) */gi, '')
         .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');
 }
 
@@ -309,10 +309,15 @@ async function convertHtmlToPdf(htmlContent) {
 
     let response;
     try {
+        const payload = {
+            source:  htmlContent,
+            format:  'A4',
+            delay:   6000
+        };
         response = await fetch(PDFSHIFT.endpoint, {
             method:  'POST',
             headers: { 'X-API-Key': PDFSHIFT.apiKey, 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ source: htmlContent, format: 'A4' }),
+            body:    JSON.stringify(payload),
             signal:  controller.signal
         });
     } finally {

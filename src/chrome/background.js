@@ -62,7 +62,7 @@ async function generateAndDownload({ html: domHtml, url, accessKey, printMode, f
             console.log('[SDL BG] Estrategia 0: embed HTML + CSS + imágenes inlineados...');
             const cookies = await getScribdCookies();
             const rawHtml  = await fetchRawEmbed(docId);
-            const stripped = stripScripts(rawHtml);
+            const stripped = stripGdprScripts(rawHtml);
             const withCSS  = await inlineExternalCSS(stripped);
             const withImgs = await inlinePageImages(withCSS, cookies);
             const prepared = prepareEmbedHtml(withImgs);
@@ -374,15 +374,20 @@ async function fetchEmbedWithKey(docId, accessKey, withCookies = false) {
 }
 
 /**
- * Elimina todos los <script> del HTML para que PDFShift no ejecute
- * JavaScript (Osano GDPR, analytics, overlays, etc.).
- * El contenido del embed ya está renderizado como HTML estático.
+ * Elimina SOLO scripts de GDPR/tracking externos (Osano, analytics).
+ * Mantiene los bundles de Scribd (DocumentManager, React) para que
+ * PDFShift pueda ejecutarlos y renderizar bordes/tablas correctamente.
+ * DocumentManager crea los elementos visuales (bordes, lineas) en runtime;
+ * sin el, el document renderiza solo texto sin estructura visual.
  */
-function stripScripts(html) {
+function stripGdprScripts(html) {
     return html
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')  // scripts inline y externos
-        .replace(/<script\b[^>]*\/>/gi, '')                   // self-closing
-        .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');     // fallbacks
+        // Scripts externos de GDPR/consent (osano.com)
+        .replace(/<script\b[^>]*src=["'][^"']*osano[^"']*["'][^>]*(?:><\/script>|\/?>) */gi, '')
+        // Scripts externos de analytics/tracking
+        .replace(/<script\b[^>]*src=["'][^"']*(?:segment\.com|googletagmanager|sentry\.io|clarity\.ms|stripe\.com|js\.stripe)[^"']*["'][^>]*(?:><\/script>|\/?>) */gi, '')
+        // Noscripts (fallbacks de GDPR)
+        .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');
 }
 
 /**
@@ -546,7 +551,8 @@ async function convertHtmlToPdf(htmlContent, printMode = false) {
     const payload = {
         source:  htmlContent,
         format:  'A4',
-        // print media activa los @media print de Scribd (oculta nav/sidebar)
+        // DocumentManager necesita tiempo para crear los bordes/tablas via JS
+        delay:   6000,
         ...(printMode && { media_type: 'print' })
     };
 
