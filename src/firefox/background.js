@@ -54,7 +54,7 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
                 const html = await res.text();
                 if (html.length > 5000 && !html.includes('error_page')) {
                     console.log('[SDL BG] Estrategia 0 OK');
-                    const wrapped = wrapEmbedHtml(html);
+                    const wrapped = wrapEmbedHtml(stripScripts(html));
                     const objectUrl = await convertHtmlToPdf(wrapped);
                     return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
                         .then(id => ({ downloadId: id }));
@@ -189,14 +189,26 @@ function extractAccessKey(html) {
     return null;
 }
 
+function stripScripts(html) {
+
+    return html
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<script\b[^>]*\/>/gi, '')
+        .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');
+}
+
 function wrapEmbedHtml(html) {
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><style>
-    * { box-sizing: border-box; }
-    body { margin: 0; padding: 20px; background: white; color: black; font-family: Georgia, serif; }
-    [class*="page"], .outer_page { page-break-after: always; background: white; }
-    img { max-width: 100%; height: auto; }
-    .toolbar_container, .toolbar, nav, [class*="toolbar"] { display: none !important; }
+* { box-sizing: border-box; max-width: 100%; }
+html, body { margin: 0; padding: 0; background: white; color: black;
+             font-family: Georgia, serif; overflow-x: hidden; }
+[class*="page"], .outer_page { page-break-after: always; background: white; }
+img { max-width: 100%; height: auto; display: block; }
+.toolbar_container, .toolbar, nav, [class*="toolbar"] { display: none !important; }
+[class*="osano"], [id*="osano"], [class*="consent"], [id*="consent"],
+[class*="cookie"], [id*="cookie"], [class*="gdpr"], [id*="gdpr"],
+[role="dialog"][aria-modal="true"], .sp-message-container { display: none !important; }
 </style></head><body>${html}</body></html>`;
 }
 

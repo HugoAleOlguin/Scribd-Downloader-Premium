@@ -215,7 +215,19 @@ async function fetchEmbedWithKey(docId, accessKey, withCookies = false) {
     if (!res.ok) throw new Error(`Scribd embed ${res.status}`);
 
     const html = await res.text();
-    return wrapEmbedHtml(html);
+    return wrapEmbedHtml(stripScripts(html));
+}
+
+/**
+ * Elimina todos los <script> del HTML para que PDFShift no ejecute
+ * JavaScript (Osano GDPR, analytics, overlays, etc.).
+ * El contenido del embed ya está renderizado como HTML estático.
+ */
+function stripScripts(html) {
+    return html
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')  // scripts inline y externos
+        .replace(/<script\b[^>]*\/>/gi, '')                   // self-closing
+        .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');     // fallbacks
 }
 
 /**
