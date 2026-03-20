@@ -35,6 +35,12 @@
   "content_scripts": [
     {
       "matches": ["*://*.scribd.com/*"],
+      "js": ["key-interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://*.scribd.com/*"],
       "all_frames": false,
       "js": [
         "libs/shim.js",

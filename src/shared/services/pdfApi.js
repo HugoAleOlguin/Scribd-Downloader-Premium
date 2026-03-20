@@ -39,7 +39,13 @@ const ScribdUtils = {
      *   4. Variables globales de window
      */
     extractAccessKey() {
-        // Intento 1: __NEXT_DATA__ (más fiable — Next.js SSR)
+        // Prioridad 0: el interceptor MAIN-world guardó el key aquí cuando Scribd hizo el fetch
+        const interceptedKey = document.documentElement.getAttribute('data-sdl-key');
+        if (interceptedKey && /^[a-zA-Z0-9_\-]{10,}$/.test(interceptedKey)) {
+            return interceptedKey;
+        }
+
+        // Prioridad 1: __NEXT_DATA__ (Next.js SSR)
         const nextDataEl = document.getElementById('__NEXT_DATA__');
         if (nextDataEl) {
             try {
