@@ -1,6 +1,11 @@
 /**
  * Scribd Premium Downloader - Content Script
- * @version 3.1.1
+ * @version 3.3.0
+ *
+ * ESTRATEGIA: Capturar el HTML ya renderizado en el cliente y enviarlo
+ * a PDFShift como contenido HTML (no como URL). Esto evita completamente
+ * la detección de bots y restricciones de acceso de Scribd, ya que
+ * el contenido ya está en el navegador del usuario.
  */
 
 const AppState = {
@@ -60,7 +65,114 @@ const OVERLAY_HTML = `
 </div>
 `;
 
-// ─── Lógica ────────────────────────────────────────────────────────────────
+// ─── Captura de contenido del DOM ──────────────────────────────────────────
+
+/**
+ * Intenta capturar el contenido del documento ya renderizado por Scribd en el DOM.
+ * Si el lector de Scribd renderizó las páginas como HTML, las extraemos aquí
+ * y las enviamos a PDFShift como contenido HTML (sin necesidad de que PDFShift
+ * acceda a Scribd).
+ *
+ * Selectores probados en orden de precisión.
+ */
+function captureRenderedContent() {
+    const READER_SELECTORS = [
+        // Reader moderno de Scribd (React)
+        '[class*="reader_and_document_bar"]',
+        '[class*="outer_page"]',
+        '[class*="page_container"]',
+        '#book-inner',
+        '#book-page-container',
+        '.reader_container',
+        '.reading_mode',
+        '.document_content',
+        '.doc_page_container',
+        // Fallback genérico: el bloque de contenido principal
+        'main article',
+        'main',
+        '#main-content'
+    ];
+
+    let container = null;
+    for (const sel of READER_SELECTORS) {
+        const el = document.querySelector(sel);
+        // Verificar que tenga contenido mínimo (no sea un div vacío)
+        if (el && el.innerText.trim().length > 200) {
+            container = el;
+            console.debug('[SDL] Contenedor encontrado:', sel);
+            break;
+        }
+    }
+
+    if (!container) {
+        console.warn('[SDL] No se encontró un contenedor de contenido válido.');
+        return null;
+    }
+
+    // Clonar para no modificar el DOM original
+    const clone = container.cloneNode(true);
+
+    // Hacer absolutas todas las URLs de imágenes relativas
+    clone.querySelectorAll('img[src]').forEach(img => {
+        try {
+            img.src = new URL(img.getAttribute('src'), window.location.origin).href;
+        } catch { /* ignorar URLs inválidas */ }
+    });
+
+    // Eliminar elementos de UI que no deben ir en el PDF
+    const UI_SELECTORS = [
+        '[id*="sdl"]', '[class*="sdl"]',          // nuestra propia UI
+        '[class*="toolbar"]', '[class*="header"]',  // UI del lector
+        '[class*="navigation"]', '[class*="nav"]',
+        'nav', 'header', 'footer',
+        '[aria-hidden="true"]'
+    ];
+    UI_SELECTORS.forEach(sel => {
+        clone.querySelectorAll(sel).forEach(el => el.remove());
+    });
+
+    const title = ScribdUtils.extractTitle();
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>${escapeHtml(title)}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: Georgia, 'Times New Roman', serif;
+            font-size: 12pt;
+            line-height: 1.7;
+            color: #111;
+            background: #fff;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1, h2, h3 { margin: 1em 0 0.5em; }
+        p { margin-bottom: 0.8em; }
+        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+        /* Forzar saltos de página para páginas del lector de Scribd */
+        [class*="page"], .outer_page { page-break-after: always; }
+    </style>
+</head>
+<body>
+    <h1 style="font-size:18pt; margin-bottom:24px; border-bottom:1px solid #ddd; padding-bottom:12px;">${escapeHtml(title)}</h1>
+    ${clone.innerHTML}
+</body>
+</html>`;
+}
+
+function escapeHtml(str) {
+    return (str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// ─── UI helpers ────────────────────────────────────────────────────────────
 function getDocumentId() {
     const match = window.location.href.match(/(?:document|doc|embeds|read|book|audiobook)\/(\d+)/);
     return match ? match[1] : null;
@@ -86,6 +198,7 @@ function renderOverlay() {
     }
 }
 
+// ─── Lógica de descarga ────────────────────────────────────────────────────
 async function handleDownloadClick() {
     if (AppState.isProcessing) return;
     AppState.isProcessing = true;
@@ -97,20 +210,26 @@ async function handleDownloadClick() {
     try {
         setButtonState(btn, 'loading');
         if (progressUI) progressUI.style.display = 'block';
-        if (progressTx) progressTx.textContent   = 'Conectando con el servidor PDF...';
+        if (progressTx) progressTx.textContent   = 'Capturando contenido del documento...';
         setStatus('', null);
 
-        const accessKey     = ScribdUtils.extractAccessKey();
-        const normalizedUrl = ScribdUtils.normalizeUrl(window.location.href, accessKey);
-        const rawTitle      = ScribdUtils.extractTitle();
-        const filename      = ScribdUtils.sanitizeFilename(rawTitle);
+        const rawTitle = ScribdUtils.extractTitle();
+        const filename = ScribdUtils.sanitizeFilename(rawTitle);
 
-        console.debug('[SDL] accessKey encontrado:', accessKey ? 'sí (' + accessKey.substring(0, 8) + '...)' : 'no');
-        console.debug('[SDL] URL del embed:', normalizedUrl);
+        // Intentar capturar el HTML del DOM primero
+        const htmlContent = captureRenderedContent();
+
+        if (!htmlContent) {
+            throw new Error(
+                'No se encontró contenido renderizado. Asegúrate de que el documento esté completamente cargado y visible.'
+            );
+        }
+
+        if (progressTx) progressTx.textContent = 'Enviando a PDFShift...';
 
         const response = await sendToBackground({
             action:   'generate_pdf',
-            url:      normalizedUrl,
+            html:     htmlContent,   // ← HTML directo, no URL
             filename: filename
         });
 
@@ -138,13 +257,13 @@ function setButtonState(btn, state) {
     if (!btn) return;
     const label = btn.querySelector('.sdl-btn-label');
     const states = {
-        idle:    { text: 'Descargar PDF',        disabled: false, cls: '' },
-        loading: { text: 'Generando PDF...',      disabled: true,  cls: 'sdl-btn--loading' },
-        success: { text: 'Descargado',            disabled: true,  cls: 'sdl-btn--success' }
+        idle:    { text: 'Descargar PDF',   disabled: false, cls: '' },
+        loading: { text: 'Generando PDF...', disabled: true,  cls: 'sdl-btn--loading' },
+        success: { text: 'Descargado',       disabled: true,  cls: 'sdl-btn--success' }
     };
     const s = states[state] || states.idle;
-    btn.disabled   = s.disabled;
-    btn.className  = `sdl-btn sdl-btn-primary ${s.cls}`;
+    btn.disabled  = s.disabled;
+    btn.className = `sdl-btn sdl-btn-primary ${s.cls}`;
     if (label) label.textContent = s.text;
 }
 
@@ -152,12 +271,12 @@ function setStatus(message, type) {
     const el = document.getElementById('sdl-status');
     if (!el) return;
     if (!message) { el.style.display = 'none'; return; }
-    el.textContent  = message;
-    el.className    = `sdl-status sdl-status--${type}`;
+    el.textContent   = message;
+    el.className     = `sdl-status sdl-status--${type}`;
     el.style.display = 'block';
 }
 
-// ─── Init ─────────────────────────────────────────────────────────────────
+// ─── Init ──────────────────────────────────────────────────────────────────
 (function init() {
     try {
         chrome.storage.local.get(['language'], () => renderOverlay());

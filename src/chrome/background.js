@@ -17,7 +17,7 @@ const PDFSHIFT_CONFIG = {
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
     if (request.action === 'generate_pdf') {
-        generateAndDownload(request.url, request.filename)
+        generateAndDownload(request)
             .then(result => sendResponse({ success: true,  ...result }))
             .catch(error => sendResponse({ success: false, error: error.message }));
         return true;
@@ -36,12 +36,18 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 // ─── Generación + descarga ────────────────────────────────────────────────
 
 /**
- * Obtiene las cookies de Scribd y llama a PDFShift pasándoselas.
- * PDFShift usará esas cookies al visitar la URL, autenticándose
- * como si fuera el propio usuario del navegador.
+ * Modo HTML:  content.js capturó el DOM y lo manda como string.
+ *             PDFShift renderiza ese HTML localmente → sin acceso a Scribd.
+ * Modo URL:   fallback si llega una url en vez de html.
  */
-async function generateAndDownload(url, filename) {
-    const scribdCookies = await getScribdCookies();
+async function generateAndDownload(request) {
+    const { html, url, filename } = request;
+
+    // Preferir HTML capturado del DOM — no requiere cookies ni acceso a Scribd
+    const source = html || url;
+    const needsCookies = !html;
+
+    const cookies = needsCookies ? await getScribdCookies() : [];
 
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT_CONFIG.timeout);
@@ -54,7 +60,7 @@ async function generateAndDownload(url, filename) {
                 'X-API-Key':    PDFSHIFT_CONFIG.apiKey,
                 'Content-Type': 'application/json'
             },
-            body:   JSON.stringify(buildPayload(url, scribdCookies)),
+            body:   JSON.stringify(buildPayload(source, cookies, !!html)),
             signal: controller.signal
         });
     } finally {
@@ -74,22 +80,28 @@ async function generateAndDownload(url, filename) {
 }
 
 /**
- * Construye el payload para PDFShift con cookies y cabeceras de navegador.
- * Las cabeceras imitan las de un Chrome real para evitar detección de bots.
+ * Construye el payload para PDFShift.
+ * isHtml=true: PDFShift recibe contenido HTML ya extraído del DOM.
+ *              No necesita cookies ni headers de Scribd.
+ * isHtml=false: PDFShift visita una URL externa (fallback).
  */
-function buildPayload(url, cookies) {
-    return {
-        source: url,
-        cookies: cookies,
-        http_headers: {
-            // User-Agent idéntico al de Chrome para evitar detección de bot
+function buildPayload(source, cookies, isHtml) {
+    const payload = {
+        source,
+        format: 'A4'
+    };
+
+    if (!isHtml) {
+        payload.cookies = cookies;
+        payload.http_headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
             'Referer': 'https://www.scribd.com/'
-        },
-        // Esperar a que el JavaScript de Scribd termine de renderizar
-        wait_for_network: true
-    };
+        };
+        payload.wait_for_network = true;
+    }
+
+    return payload;
 }
 
 /**
