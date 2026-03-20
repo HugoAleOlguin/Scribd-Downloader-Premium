@@ -45,7 +45,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 });
 
 // ─── Orquestador principal ────────────────────────────────────────────────
-async function generateAndDownload({ html: domHtml, url, accessKey, filename }) {
+async function generateAndDownload({ html: domHtml, url, accessKey, printMode, filename }) {
     const docId = extractDocId(url);
     console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
 
@@ -66,13 +66,14 @@ async function generateAndDownload({ html: domHtml, url, accessKey, filename }) 
     // ── Estrategia 1: HTML del body capturado por content.js ────────────
     if (domHtml) {
         try {
-            console.log('[SDL BG] Estrategia 1: convirtiendo HTML del DOM a PDF...');
-            const objectUrl = await convertHtmlToPdf(domHtml);
+            console.log('[SDL BG] Estrategia 1: convirtiendo HTML del DOM a PDF (printMode:', printMode, ')...');
+            const objectUrl = await convertHtmlToPdf(domHtml, printMode);
             return triggerDownload(objectUrl, `${filename}.pdf`);
         } catch (err) {
             console.log('[SDL BG] Estrategia 1 falló:', err.message);
         }
     }
+
 
     throw new Error(
         domHtml
@@ -224,9 +225,16 @@ ${html}
 }
 
 // ─── Estrategia 2: HTML → PDFShift ───────────────────────────────────────
-async function convertHtmlToPdf(htmlContent, filename) {
+async function convertHtmlToPdf(htmlContent, printMode = false) {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
+
+    const payload = {
+        source:  htmlContent,
+        format:  'A4',
+        // print media activa los @media print de Scribd (oculta nav/sidebar)
+        ...(printMode && { media_type: 'print' })
+    };
 
     let response;
     try {
@@ -236,7 +244,7 @@ async function convertHtmlToPdf(htmlContent, filename) {
                 'X-API-Key':    PDFSHIFT.apiKey,
                 'Content-Type': 'application/json'
             },
-            body:   JSON.stringify({ source: htmlContent, format: 'A4' }),
+            body:   JSON.stringify(payload),
             signal: controller.signal
         });
     } finally {
@@ -250,6 +258,7 @@ async function convertHtmlToPdf(htmlContent, filename) {
 
     return URL.createObjectURL(await response.blob());
 }
+
 
 // ─── Utilidades ───────────────────────────────────────────────────────────
 

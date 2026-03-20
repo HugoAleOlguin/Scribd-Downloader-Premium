@@ -78,54 +78,57 @@ const OVERLAY_HTML = `
 function captureRenderedContent() {
     const bodyText = document.body.innerText || '';
 
-    // ─ Detectar paywall: Scribd muestra este texto por cada página bloqueada ─
+    // Detectar paywall
     const paywallCount = (bodyText.match(/Descarga para leer sin publicidad/gi) || []).length;
     if (paywallCount > 3) {
-        console.warn('[SDL] Paywall detectado (' + paywallCount + ' páginas bloqueadas). El documento requiere suscripción.');
+        console.warn('[SDL] Paywall detectado (' + paywallCount + ' páginas bloqueadas).');
         return 'PAYWALL';
     }
 
-    // ─ Clonar body y eliminar agresivamente todo lo que no es contenido del libro ─
+    // Clonar body: remover SOLO lo que sabemos que no es contenido
     const clone = document.body.cloneNode(true);
-    [
-        '#sdl-overlay', 'script', 'style', 'noscript', 'iframe',
-        'nav', 'header', 'footer',
-        '[role="banner"]', '[role="navigation"]', '[role="complementary"]',
-        '[role="dialog"]', '[role="alertdialog"]',
-        // Elementos de UI de Scribd por posición/función semántica
-        '[class*="toolbar"]', '[class*="sidebar"]', '[class*="recommendation"]',
-        '[class*="header"]', '[class*="footer"]', '[class*="nav"]',
-        '[class*="modal"]', '[class*="banner"]', '[class*="ad"]',
-        // Secciones de Scribd
-        '[data-e2e="related-docs"]', '[data-e2e="toolbar"]'
-    ].forEach(sel => clone.querySelectorAll(sel).forEach(el => el.remove()));
+    ['#sdl-overlay', 'script', 'noscript', 'iframe'].forEach(sel => {
+        clone.querySelectorAll(sel).forEach(el => el.remove());
+    });
 
     const cleanText = (clone.textContent || '').trim();
-    console.log('[SDL] Texto limpio:', cleanText.length, 'chars');
+    console.log('[SDL] Texto capturado:', cleanText.length, 'chars');
+    if (cleanText.length < 200) return null;
 
-    if (cleanText.length < 200) {
-        console.warn('[SDL] Contenido insuficiente tras limpiar UI.');
-        return null;
-    }
+    // Recoger stylesheets del head de Scribd (necesarios para que PDFShift aplique print CSS)
+    const linkTags = Array.from(document.head.querySelectorAll('link[rel="stylesheet"]'))
+        .map(l => l.outerHTML)
+        .join('\n');
+    const inlineStyles = Array.from(document.head.querySelectorAll('style'))
+        .map(s => `<style>${s.textContent}</style>`)
+        .join('\n');
 
-    // Convertir imágenes a URLs absolutas
+    // URLs absolutas en imágenes
     clone.querySelectorAll('img[src]').forEach(img => {
         try { img.src = new URL(img.getAttribute('src'), window.location.origin).href; } catch {}
     });
 
     const title = ScribdUtils.extractTitle();
-    return `<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title>
+    // El campo printMode=true en el mensaje indica al background que use media_type: 'print'
+    // para que PDFShift active los @media print de Scribd (ocultan nav/sidebar)
+    return {
+        html: `<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="UTF-8">
+<title>${escapeHtml(title)}</title>
+${linkTags}
+${inlineStyles}
 <style>
-    body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.7; color: #111;
-           background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
-    img  { max-width: 100%; height: auto; display: block; margin: 1em auto; }
-    h1,h2,h3 { margin: 1em 0 0.5em; } p { margin-bottom: 0.8em; }
-</style></head>
-<body>
-<h1 style="font-size:18pt;margin-bottom:24px;border-bottom:1px solid #ddd;padding-bottom:12px;">${escapeHtml(title)}</h1>
-${clone.innerHTML}
-</body></html>`;
+/* Override mínimo: ocultar elementos de UI de Scribd en modo print */
+@media print {
+    [role="banner"], [role="navigation"], [role="complementary"],
+    [role="dialog"], form, input, button { display: none !important; }
+}
+</style>
+</head>
+<body>${clone.innerHTML}</body></html>`,
+        printMode: true
+    };
 }
 
 function escapeHtml(str) {
@@ -207,14 +210,18 @@ async function handleDownloadClick() {
             );
         }
 
-        console.log('[SDL] access_key en DOM:', accessKey ? `sí (${accessKey.substring(0, 10)}...)` : 'NO encontrado');
-        console.log('[SDL] HTML del DOM:', htmlContent ? `sí (${htmlContent.length} chars)` : 'NO encontrado');
+        const capturedHtml = htmlContent ? htmlContent.html  : null;
+        const printMode    = htmlContent ? htmlContent.printMode : false;
+
+        console.log('[SDL] HTML del DOM:', capturedHtml ? `sí (${capturedHtml.length} chars)` : 'NO encontrado');
+        console.log('[SDL] printMode:', printMode);
 
         if (progressTx) progressTx.textContent = 'Enviando a PDFShift...';
 
         const response = await sendToBackground({
             action:    'generate_pdf',
-            html:      htmlContent,
+            html:      capturedHtml,
+            printMode: printMode,
             url:       window.location.href,
             accessKey: accessKey,
             filename:  filename
