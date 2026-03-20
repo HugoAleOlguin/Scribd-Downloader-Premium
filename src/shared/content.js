@@ -85,32 +85,48 @@ function captureRenderedContent() {
         return 'PAYWALL';
     }
 
-    // Clonar body: remover SOLO lo que sabemos que no es contenido
-    const clone = document.body.cloneNode(true);
+    // Intentar aislar el contenido del documento usando <main> o [role="main"].
+    // Next.js/React apps ponen aquí el contenido principal, excluyendo header y footer.
+    const mainEl = document.querySelector('main') || document.querySelector('[role="main"]');
+    let sourceEl  = null;
+
+    if (mainEl && (mainEl.textContent || '').trim().length > 200) {
+        sourceEl = mainEl;
+        console.log('[SDL] Usando <main> como fuente');
+    } else {
+        // Fallback: body completo
+        sourceEl = document.body;
+        console.log('[SDL] Usando <body> como fuente (no se encontró <main>)');
+    }
+
+    const clone = sourceEl.cloneNode(true);
+
+    // Remover elementos que definitivamente no son contenido
     ['#sdl-overlay', 'script', 'noscript', 'iframe'].forEach(sel => {
         clone.querySelectorAll(sel).forEach(el => el.remove());
     });
 
+    // Si usamos body y tiene footer visible, quitarlo
+    if (sourceEl === document.body) {
+        clone.querySelectorAll('footer, [role="contentinfo"]').forEach(el => el.remove());
+    }
+
     const cleanText = (clone.textContent || '').trim();
     console.log('[SDL] Texto capturado:', cleanText.length, 'chars');
     if (cleanText.length < 200) return null;
-
-    // Recoger stylesheets del head de Scribd (necesarios para que PDFShift aplique print CSS)
-    const linkTags = Array.from(document.head.querySelectorAll('link[rel="stylesheet"]'))
-        .map(l => l.outerHTML)
-        .join('\n');
-    const inlineStyles = Array.from(document.head.querySelectorAll('style'))
-        .map(s => `<style>${s.textContent}</style>`)
-        .join('\n');
 
     // URLs absolutas en imágenes
     clone.querySelectorAll('img[src]').forEach(img => {
         try { img.src = new URL(img.getAttribute('src'), window.location.origin).href; } catch {}
     });
 
+    // Recoger stylesheets de Scribd para que PDFShift aplique print CSS
+    const linkTags = Array.from(document.head.querySelectorAll('link[rel="stylesheet"]'))
+        .map(l => l.outerHTML).join('\n');
+    const inlineStyles = Array.from(document.head.querySelectorAll('style'))
+        .map(s => `<style>${s.textContent}</style>`).join('\n');
+
     const title = ScribdUtils.extractTitle();
-    // El campo printMode=true en el mensaje indica al background que use media_type: 'print'
-    // para que PDFShift active los @media print de Scribd (ocultan nav/sidebar)
     return {
         html: `<!DOCTYPE html>
 <html lang="es"><head>
@@ -119,10 +135,17 @@ function captureRenderedContent() {
 ${linkTags}
 ${inlineStyles}
 <style>
-/* Override mínimo: ocultar elementos de UI de Scribd en modo print */
+/* Fix: prevenir overflow horizontal (corrido a la derecha) */
+html, body { margin: 0 !important; padding: 0 !important;
+             overflow-x: hidden !important; max-width: 100% !important; }
+* { max-width: 100% !important; box-sizing: border-box !important; }
+img { max-width: 100% !important; height: auto !important; }
+
+/* Ocultar UI de Scribd en modo print */
 @media print {
     [role="banner"], [role="navigation"], [role="complementary"],
-    [role="dialog"], form, input, button { display: none !important; }
+    [role="contentinfo"], [role="dialog"],
+    form, input, button, header, footer, nav { display: none !important; }
 }
 </style>
 </head>
