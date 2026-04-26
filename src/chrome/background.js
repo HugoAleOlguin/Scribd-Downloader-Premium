@@ -1,1 +1,1 @@
-// background.js — lógica de descarga pendiente de implementación
+// background.js — Scribd Downloader
