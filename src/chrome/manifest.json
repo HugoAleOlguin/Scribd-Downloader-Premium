@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Scribd Premium Downloader",
-  "version": "3.0.0",
-  "description": "Download PDFs from Scribd directly via Ploi Cloud API. One click, no scanning.",
+  "name": "Scribd Downloader",
+  "version": "5.0.0",
+  "description": "Descarga documentos de Scribd como PDF directamente desde el navegador. Sin APIs externas.",
   "permissions": [
     "activeTab",
     "downloads",
@@ -11,8 +11,7 @@
   ],
   "host_permissions": [
     "*://*.scribd.com/*",
-    "https://api.pdfshift.io/*",
-    "<all_urls>"
+    "*://*.scribdassets.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -50,18 +49,6 @@
       ],
       "css": ["overlay.css"],
       "run_at": "document_idle"
-    },
-    {
-      "matches": ["<all_urls>"],
-      "exclude_matches": ["*://*.scribd.com/*"],
-      "all_frames": false,
-      "js": [
-        "libs/i18n.js",
-        "services/pdfApi.js",
-        "content.js"
-      ],
-      "css": ["overlay.css"],
-      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -69,6 +56,7 @@
       "resources": [
         "libs/shim.js",
         "libs/i18n.js",
+        "libs/pdf-lib.min.js",
         "icons/icon128.png",
         "icons/icon48.png",
         "icons/icon32.png"

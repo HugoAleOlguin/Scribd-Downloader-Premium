@@ -1,4 +1,4 @@
-/* overlay.css — Scribd Premium Downloader v3.1.1 */
+/* overlay.css — Scribd Premium Downloader v3.2.0 */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* ── Contenedor raíz ────────────────────────────────────────────────────── */
@@ -14,25 +14,25 @@
 /* ── Card ───────────────────────────────────────────────────────────────── */
 .sdl-glass {
     pointer-events: auto;
-    background: rgba(13, 13, 16, 0.98) !important;
-    backdrop-filter: blur(24px) saturate(160%) !important;
-    -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.09) !important;
-    border-radius: 16px !important;
+    background: rgba(10, 10, 14, 0.97) !important;
+    backdrop-filter: blur(32px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 18px !important;
     box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.04),
-        0 32px 64px -16px rgba(0, 0, 0, 0.85),
-        0 8px 20px -4px rgba(0, 0, 0, 0.5) !important;
+        0 0 0 1px rgba(255, 255, 255, 0.05),
+        0 40px 80px -16px rgba(0, 0, 0, 0.9),
+        0 8px 24px -4px rgba(0, 0, 0, 0.6) !important;
     padding: 20px !important;
-    width: 320px !important;
+    width: 340px !important;
     display: flex !important;
     flex-direction: column !important;
-    gap: 16px !important;
-    animation: sdl-entry 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    gap: 14px !important;
+    animation: sdl-entry 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes sdl-entry {
-    from { transform: translateY(14px) scale(0.97); opacity: 0; }
+    from { transform: translateY(16px) scale(0.96); opacity: 0; }
     to   { transform: translateY(0)    scale(1);    opacity: 1; }
 }
 
@@ -117,38 +117,114 @@
     line-height: 1.4 !important;
 }
 
-/* ── Progress ───────────────────────────────────────────────────────────── */
+/* ── Progress container ─────────────────────────────────────────────────── */
 .sdl-progress-ui {
     display: flex !important;
     flex-direction: column !important;
-    gap: 7px !important;
+    gap: 9px !important;
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 12px !important;
+    padding: 14px !important;
 }
 
+/* Fila texto + timer */
+.sdl-progress-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+}
+
+.sdl-stage--active .sdl-stage-dot {
+    background: #60a5fa !important;
+    box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.2), 0 0 12px rgba(96, 165, 250, 0.4) !important;
+    animation: sdl-pulse 1s ease-in-out infinite !important;
+}
+
+.sdl-stage--done .sdl-stage-dot {
+    background: #10b981 !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15) !important;
+    animation: none !important;
+}
+
+@keyframes sdl-pulse {
+    0%, 100% { transform: scale(1);    box-shadow: 0 0 0 4px rgba(96,165,250,0.2), 0 0 12px rgba(96,165,250,0.4); }
+    50%       { transform: scale(1.3); box-shadow: 0 0 0 6px rgba(96,165,250,0.1), 0 0 20px rgba(96,165,250,0.6); }
+}
+
+.sdl-stage-label {
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: rgba(255, 255, 255, 0.4) !important;
+    transition: color 0.3s, font-weight 0.1s !important;
+    line-height: 1 !important;
+}
+
+.sdl-stage--active .sdl-stage-label {
+    color: #e2e8f0 !important;
+    font-weight: 600 !important;
+}
+
+.sdl-stage--done .sdl-stage-label {
+    color: #34d399 !important;
+    font-weight: 500 !important;
+}
+
+/* ── Barra de progreso ──────────────────────────────────────────────────── */
 .sdl-progress-track {
-    background: rgba(255, 255, 255, 0.06) !important;
-    height: 3px !important;
+    background: rgba(255, 255, 255, 0.07) !important;
+    height: 6px !important;
     border-radius: 99px !important;
     overflow: hidden !important;
+    position: relative !important;
 }
 
 .sdl-progress-bar {
     height: 100% !important;
+    width: 0% !important;
     border-radius: 99px !important;
-    background: linear-gradient(90deg, #3b82f6, #60a5fa) !important;
-    animation: sdl-indeterminate 1.6s ease-in-out infinite !important;
-    transform-origin: left center !important;
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6, #60a5fa) !important;
+    background-size: 200% 100% !important;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    animation: sdl-shimmer 1.8s linear infinite !important;
+    position: relative !important;
 }
 
-@keyframes sdl-indeterminate {
-    0%   { transform: translateX(-100%) scaleX(0.4); }
-    50%  { transform: translateX(60%)   scaleX(0.7); }
-    100% { transform: translateX(200%)  scaleX(0.4); }
+@keyframes sdl-shimmer {
+    0%   { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+
+/* ── Footer (texto + timer) ─────────────────────────────────────────────── */
+.sdl-progress-footer {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 8px !important;
 }
 
 .sdl-progress-text {
     font-size: 11.5px !important;
     color: rgba(255, 255, 255, 0.45) !important;
     font-weight: 500 !important;
+    flex: 1 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.sdl-progress-time {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    color: rgba(255, 255, 255, 0.35) !important;
+    font-variant-numeric: tabular-nums !important;
+    font-family: 'SF Mono', 'Fira Code', monospace !important;
+    background: rgba(255,255,255,0.06) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    flex-shrink: 0 !important;
 }
 
 /* ── Botón principal ────────────────────────────────────────────────────── */
@@ -194,12 +270,12 @@
 .sdl-btn--loading {
     background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%) !important;
     box-shadow: none !important;
-    opacity: 0.75 !important;
+    opacity: 0.8 !important;
 }
 
 .sdl-btn--success {
     background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
-    box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3) !important;
+    box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35) !important;
 }
 
 .sdl-btn-label {

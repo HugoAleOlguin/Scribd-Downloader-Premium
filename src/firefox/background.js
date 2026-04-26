@@ -1,381 +1,307 @@
 /**
- * Scribd Premium Downloader - Background Script (Firefox)
- * @version 3.5.0 (Manifest V3 - Firefox)
+ * Scribd Downloader - Background Script (Firefox/MV3)
+ * @version 5.0.0 (local/develop)
  *
- * ESTRATEGIAS (en orden):
- *  1. Usar el access_key que encontró el content script → fetch embed directo (sin cookies)
- *  2. Background busca el access_key en el HTML de la página de Scribd (con cookies)
- *  3. Usar el HTML capturado del DOM por content.js
+ * NOTA: Firefox MV3 background usa "type": "module" — no tenemos importScripts().
+ * pdf-lib se carga dinámicamente via fetch + Function eval (patrón estándar para UMD en module workers).
+ *
+ * ESTRATEGIA ÚNICA: scribd-dl approach
+ *   embed URL → extraer imágenes → descargar → pdf-lib → chrome.downloads
  */
 
-const PDFSHIFT = {
-    endpoint: 'https://api.pdfshift.io/v3/convert/pdf',
-    apiKey:   'sk_b44a585579aa75162adc2b86731707f2a3b5ef63',
-    timeout:  90_000
-};
+// ─── Carga de pdf-lib en contexto module ──────────────────────────────────
 
-const SCRIBD_UNIVERSAL_KEY = 'key-fFexxf7r1bzEfWu3HKwf';
+let PDFLib = null;
+
+async function loadPdfLib() {
+    if (PDFLib) return PDFLib;
+
+    // Fetch el script UMD local y evaluarlo en el contexto global
+    const url  = browser.runtime.getURL('libs/pdf-lib.min.js');
+    const resp = await fetch(url);
+    const code = await resp.text();
+
+    // Ejecutar el bundle UMD para que defina self.PDFLib
+    const fn = new Function(code);
+    fn();
+
+    PDFLib = self.PDFLib;
+    return PDFLib;
+}
+
+// ─── Constantes ────────────────────────────────────────────────────────────
+
+const SCRIBD_EMBED_KEY = 'key-fFexxf7r1bzEfWu3HKwf';
 
 const SCRIBD_HEADERS = {
     'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'es-ES,es;q=0.9,en-US;q=0.5',
+    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.5',
     'Cache-Control':   'no-cache'
 };
 
-// ─── Listener de mensajes ─────────────────────────────────────────────────
-browser.runtime.onMessage.addListener((request, _sender) => {
+// ─── Listener principal ────────────────────────────────────────────────────
 
-    if (request.action === 'generate_pdf') {
-        return generateAndDownload(request)
-            .then(result => ({ success: true,  ...result }))
-            .catch(err   => ({ success: false, error: err.message || String(err) }));
-    }
+browser.runtime.onMessage.addListener((request, sender) => {
+    if (request.action !== 'generate_pdf') return;
 
-    return Promise.resolve({ success: true });
+    const tabId = sender.tab?.id ?? null;
+
+    const sendProgress = (stage, percent = null) => {
+        console.log(`[SDL] ${stage}`);
+        if (!tabId) return;
+        browser.tabs.sendMessage(tabId, { action: 'sdl_progress', stage, percent }).catch(() => {});
+    };
+
+    return generateAndDownload(request, sendProgress);
 });
 
-// ─── Orquestador ──────────────────────────────────────────────────────────
-async function generateAndDownload({ html: domHtml, url, accessKey, filename }) {
+// ─── Orquestador ───────────────────────────────────────────────────────────
+
+async function generateAndDownload({ url, filename }, sendProgress) {
     const docId = extractDocId(url);
-    console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
-
-    // ── Estrategia 0: embed HTML + CSS inlineado desde scribdassets.com ────────
-    if (docId) {
-        try {
-            console.log('[SDL BG] Estrategia 0: embed → PDFShift (CDN load)...');
-            const cookies  = await getScribdCookies();
-            const rawHtml  = await fetchRawEmbed(docId);
-            const stripped = stripGdprScripts(rawHtml);
-            const pageDims = extractPageDimensions(rawHtml);
-            const fitZoom  = calculateFitZoom(pageDims.width);
-            console.log('[SDL BG] Page dims:', pageDims.width + 'x' + pageDims.height, '| zoom:', fitZoom);
-            const prepared  = prepareEmbedHtml(stripped, pageDims);
-            const objectUrl = await convertHtmlToPdf(prepared, fitZoom);
-            console.log('[SDL BG] Estrategia 0 OK');
-            return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
-                .then(id => ({ downloadId: id }));
-        } catch (err) {
-            console.log('[SDL BG] Estrategia 0 falló:', err.message);
-        }
+    if (!docId) {
+        return { success: false, error: 'No se encontró ID de documento en la URL de Scribd.' };
     }
 
-    if (docId) {
-        try {
-            const directUrl = await tryScribdDirectDownload(docId);
-            if (directUrl) {
-                console.log('[SDL BG] Estrategia 0 OK: PDF directo de Scribd');
-                return browser.downloads.download({ url: directUrl, filename: `${filename}.pdf`, saveAs: true })
-                    .then(id => ({ downloadId: id }));
-            }
-        } catch (err) {
-            console.log('[SDL BG] Estrategia 0 falló:', err.message);
-        }
-    }
+    try {
+        sendProgress('Cargando motor PDF...', 3);
+        await loadPdfLib();
 
-    // Estrategia 1: HTML del body capturado por content.js
-    if (domHtml) {
-        try {
-            console.log('[SDL BG] Estrategia 1: convirtiendo HTML del DOM a PDF...');
-            const objectUrl = await convertHtmlToPdf(domHtml);
-            return browser.downloads.download({ url: objectUrl, filename: `${filename}.pdf`, saveAs: true })
-                .then(id => ({ downloadId: id }));
-        } catch (err) {
-            console.log('[SDL BG] Estrategia 1 falló:', err.message);
-        }
-    }
+        sendProgress('Obteniendo estructura del documento...', 5);
+        const embedHtml = await fetchEmbed(docId);
 
-    throw new Error(
-        domHtml
-            ? 'El servidor PDF rechazó el contenido.'
-            : 'No se pudo obtener el documento. Verifica permisos de descarga en tu cuenta Scribd.'
-    );
+        sendProgress('Analizando páginas...', 15);
+        const pageUrls = extractPageImageUrls(embedHtml);
+
+        if (pageUrls.length === 0) {
+            return {
+                success: false,
+                error: 'No se encontraron imágenes de página. El documento puede requerir sesión activa en Scribd.'
+            };
+        }
+
+        const pageDims = extractPageDimensions(embedHtml);
+        console.log(`[SDL] ${pageDims.width}×${pageDims.height} | ${pageUrls.length} páginas`);
+
+        const cookies   = await getScribdCookies();
+        const imageData = await downloadImages(pageUrls, cookies, sendProgress);
+        const validPages = imageData.filter(Boolean).length;
+
+        if (validPages === 0) {
+            return { success: false, error: 'No se pudo descargar ninguna imagen de página.' };
+        }
+
+        sendProgress(`Generando PDF (${validPages} páginas)...`, 85);
+        const pdfBytes = await buildPdf(imageData, pageDims);
+
+        sendProgress('Guardando archivo...', 98);
+        const blob    = new Blob([pdfBytes], { type: 'application/pdf' });
+        const pdfUrl  = URL.createObjectURL(blob);
+        const dlId    = await triggerDownload(pdfUrl, `${filename}.pdf`);
+
+        sendProgress('¡Listo!', 100);
+        return { success: true, downloadId: dlId };
+
+    } catch (err) {
+        console.error('[SDL] Error:', err.message);
+        return { success: false, error: err.message };
+    }
 }
 
-async function tryScribdDirectDownload(docId) {
+// ─── Fetch del embed de Scribd ─────────────────────────────────────────────
+
+async function fetchEmbed(docId) {
     const cookies   = await getScribdCookies();
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-    const response = await fetch(
-        `https://www.scribd.com/document_downloads/download/${docId}?extension=pdf`,
-        { method: 'GET', headers: { ...SCRIBD_HEADERS, Cookie: cookieStr }, redirect: 'follow' }
-    );
+    const url = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&access_key=${SCRIBD_EMBED_KEY}&show_recommendations=false`;
 
-    const contentType = response.headers.get('content-type') || '';
-    console.log('[SDL BG] Scribd download status:', response.status, '| type:', contentType.substring(0, 40));
-
-    if (response.ok && (contentType.includes('pdf') || contentType.includes('octet-stream'))) {
-        return URL.createObjectURL(await response.blob());
-    }
-    return null;
-}
-
-
-
-// ─── Estrategia 1: embed directo con access_key ───────────────────────────
-
-/**
- * Fetchea el embed de Scribd usando el access_key como token de autorización.
- * No requiere cookies del usuario: el access_key fue diseñado para acceso externo.
- */
-async function fetchEmbedWithKey(docId, accessKey) {
-    const embedUrl = [
-        `https://www.scribd.com/embeds/${docId}/content`,
-        `?start_page=1&view_mode=scroll`,
-        `&access_key=${encodeURIComponent(accessKey)}`
-    ].join('');
-
-    const res = await fetch(embedUrl, { headers: { ...SCRIBD_HEADERS } });
-
-    if (!res.ok) throw new Error(`Scribd embed ${res.status}`);
-    return wrapEmbedHtml(await res.text());
-}
-
-// ─── Estrategia 2: fetch autenticado a Scribd ────────────────────────────
-
-async function fetchScribdEmbed(docId) {
-    const cookies   = await getScribdCookies();
-    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    const authHeaders = { ...SCRIBD_HEADERS, Cookie: cookieStr };
-
-    const pageUrl = `https://www.scribd.com/document/${docId}`;
-    console.log('[SDL BG] Fetching Scribd page:', pageUrl);
-
-    const pageRes = await fetch(pageUrl, { headers: authHeaders, redirect: 'follow' });
-    console.log('[SDL BG] Scribd page status:', pageRes.status);
-
-    if (!pageRes.ok) throw new Error(`Scribd página ${pageRes.status}`);
-
-    const pageHtml  = await pageRes.text();
-    console.log('[SDL BG] HTML length:', pageHtml.length);
-
-    const accessKey = extractAccessKey(pageHtml);
-    console.log('[SDL BG] access_key en respuesta:', accessKey ? `sí (${accessKey.substring(0, 10)}...)` : 'NO');
-
-    if (!accessKey) return null;
-
-    const embedUrl = [
-        `https://www.scribd.com/embeds/${docId}/content`,
-        `?start_page=1&view_mode=scroll`,
-        `&access_key=${encodeURIComponent(accessKey)}`
-    ].join('');
-
-    const embedRes = await fetch(embedUrl, {
-        headers:  { ...authHeaders, Referer: pageUrl },
-        redirect: 'follow'
+    console.log('[SDL] Fetching embed docId:', docId);
+    const res = await fetch(url, {
+        headers: { ...SCRIBD_HEADERS, Cookie: cookieStr }
     });
 
-    if (!embedRes.ok) throw new Error(`Scribd embed ${embedRes.status}`);
-    return prepareEmbedHtml(stripScripts(await embedRes.text()));
-}
+    if (!res.ok) throw new Error(`Error al obtener el embed (HTTP ${res.status})`);
 
-function extractAccessKey(html) {
-    const patterns = [
-        /"access_key"\s*:\s*"([a-zA-Z0-9_\-]{10,})"/,
-        /'access_key'\s*:\s*'([a-zA-Z0-9_\-]{10,})'/,
-        /data-access-key="([a-zA-Z0-9_\-]{10,})"/
-    ];
-    for (const p of patterns) {
-        const m = html.match(p);
-        if (m) return m[1];
-    }
-    return null;
-}
-
-function stripGdprScripts(html) {
-    return html
-        .replace(/<script\b[^>]*src=["'][^"']*osano[^"']*["'][^>]*(?:><\/script>|\/?>) */gi, '')
-        .replace(/<script\b[^>]*src=["'][^"']*(?:segment\.com|googletagmanager|sentry\.io|clarity\.ms|stripe\.com|js\.stripe)[^"']*["'][^>]*(?:><\/script>|\/?>) */gi, '')
-        .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');
-}
-
-function extractPageDimensions(html) {
-    const m = html.match(/class="outer_page[^"]*"[^>]*style="width:(\d+)px[^;]*;?\s*height:(\d+)px/);
-    if (m) return { width: parseInt(m[1]), height: parseInt(m[2]) };
-    const m2 = html.match(/id="page\d+"[^>]*style="width:\s*(\d+)px;\s*height:(\d+)px/);
-    if (m2) return { width: parseInt(m2[1]), height: parseInt(m2[2]) };
-    return { width: 902, height: 1167 };
-}
-
-function calculateFitZoom(pageWidthPx) {
-    const zoom = 790 / pageWidthPx;
-    return Math.min(1.0, Math.max(0.5, parseFloat(zoom.toFixed(2))));
-}
-
-function prepareEmbedHtml(html, pageDims = { width: 902, height: 1167 }) {
-    const overrideCSS = `<style id="sdl-overrides">
-* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-body > div:not([data-track_category="embeds"]),
-body > header, body > footer, body > nav, body > script, #fb-root { display: none !important; }
-[data-track_category="embeds"] > div:not(.document_scroller) { display: none !important; }
-.document_scroller > div:not(.document_container) { display: none !important; }
-[class*="toolbar"], [class*="Toolbar"], [class*="ToolBar"],
-[class*="action_bar"], [class*="ActionBar"],
-[class*="EmbedHeader"], [class*="EmbedFooter"],
-[class*="share_button"], [class*="download_btn"],
-[id*="toolbar"], .bottom_toolbar, .header_container { display: none !important; }
-[class*="osano"], [id*="osano"], [class*="consent"], [id*="consent"],
-[class*="cookie"], [id*="cookie"], [class*="gdpr"], [id*="gdpr"],
-[role="dialog"][aria-modal="true"], .sp-message-container { display: none !important; }
-</style>`;
-    const cleanupScript = `<script>
-setTimeout(function() {
-    document.querySelectorAll('[class*="toolbar"], [class*="Toolbar"], ' +
-        '[class*="EmbedHeader"], [class*="EmbedFooter"], ' +
-        '[class*="action_bar"], [class*="ActionBar"]').forEach(function(el) {
-        if (!el.closest('.outer_page_container') && !el.closest('.document_container')) {
-            el.style.setProperty('display', 'none', 'important');
-        }
-    });
-    var scroller = document.querySelector('.document_scroller') || document.documentElement;
-    var step = 600, i = 0, maxIt = Math.ceil(Math.max(scroller.scrollHeight, document.body.scrollHeight) / step) + 5;
-    function scrollStep() {
-        scroller.scrollTop = i * step;
-        document.documentElement.scrollTop = i * step;
-        i++;
-        if (i <= maxIt) setTimeout(scrollStep, 80);
-        else { scroller.scrollTop = 0; document.documentElement.scrollTop = 0; }
-    }
-    scrollStep();
-}, 500);
-</script>`;
-    let result = html;
-    result = result.includes('</head>') ? result.replace('</head>', overrideCSS + '\n</head>') : overrideCSS + result;
-    result = result.includes('</body>') ? result.replace('</body>', cleanupScript + '\n</body>') : result + cleanupScript;
-    return result;
-}
-
-async function fetchRawEmbed(docId) {
-    const cookies   = await getScribdCookies();
-    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    const url = [
-        `https://www.scribd.com/embeds/${docId}/content`,
-        `?start_page=1&view_mode=scroll&access_key=${SCRIBD_UNIVERSAL_KEY}`,
-        `&show_recommendations=false`
-    ].join('');
-    const res = await fetch(url, { headers: { ...SCRIBD_HEADERS, Cookie: cookieStr } });
-    if (!res.ok) throw new Error(`Embed ${res.status}`);
     const html = await res.text();
-    if (html.length < 5_000) throw new Error('Embed HTML muy corto');
+    if (html.length < 3_000) {
+        throw new Error(`Respuesta del embed demasiado corta (${html.length} chars).`);
+    }
+
     return html;
 }
 
-async function inlineExternalCSS(html) {
-    const hrefRe  = /\bhref=["']([^"']+)["']/i;
-    const linkTags = [...html.matchAll(/<link\b[^>]*\brel=["']stylesheet["'][^>]*\/?>/gi)].map(m => m[0]);
-    if (!linkTags.length) return html;
-    console.log('[SDL BG] CSS inline: fetching', linkTags.length, 'archivos CSS...');
+// ─── Extracción de URLs de imágenes ───────────────────────────────────────
 
-    const jobs = linkTags.map(async (tag) => {
-        const hrefM = tag.match(hrefRe);
-        if (!hrefM) return { tag, css: null };
-        let url = hrefM[1];
-        if (url.startsWith('//')) url = 'https:' + url;
-        if (!url.startsWith('http')) return { tag, css: null };
-        try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 12_000);
-            const res = await fetch(url, {
-                headers: { Accept: 'text/css,*/*', 'User-Agent': SCRIBD_HEADERS['User-Agent'] },
-                signal: controller.signal
-            });
-            clearTimeout(timer);
-            return { tag, css: res.ok ? await res.text() : null };
-        } catch { return { tag, css: null }; }
-    });
+function extractPageImageUrls(html) {
+    const seen = new Set();
+    const urls = [];
 
-    const results = await Promise.allSettled(jobs);
-    let result = html;
-    let count = 0;
-    for (const r of results) {
-        if (r.status === 'fulfilled' && r.value.css) {
-            result = result.replace(r.value.tag, `<style>\n${r.value.css}\n</style>`);
-            count++;
+    const normalized = html.replace(/\\\//g, '/');
+    const imgUrlRe   = /https?:\/\/html\.scribdassets\.com\/[a-zA-Z0-9]+\/images\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)/gi;
+
+    let match;
+    while ((match = imgUrlRe.exec(normalized)) !== null) {
+        const url = match[0];
+        if (!seen.has(url)) {
+            seen.add(url);
+            urls.push(url);
         }
     }
-    console.log('[SDL BG] CSS inline:', count, '/', linkTags.length, 'inlineados');
-    return result;
+
+    urls.sort((a, b) => {
+        const pageNum = u => parseInt(u.match(/\/images\/(\d+)-/)?.[1] ?? '0');
+        return pageNum(a) - pageNum(b);
+    });
+
+    console.log('[SDL] Páginas encontradas:', urls.length);
+    return urls;
 }
 
-async function inlinePageImages(html, cookies = []) {
-    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    const imgRe = /(<img\b[^>]*\bsrc=")([^"]+)("[^>]*>)/gi;
-    const allSrcs = [];
-    let m;
-    while ((m = imgRe.exec(html)) !== null) allSrcs.push(m[2]);
-    if (!allSrcs.length) return html;
-    console.log('[SDL BG] Imágenes inline: descargando', allSrcs.length, 'imágenes...');
+// ─── Descarga de imágenes ──────────────────────────────────────────────────
 
-    const cache = new Map();
-    await Promise.allSettled(
-        allSrcs.map(async (src) => {
-            if (cache.has(src)) return;
-            let url = src;
-            if (url.startsWith('//')) url = 'https:' + url;
-            if (!url.startsWith('http')) { cache.set(src, null); return; }
+async function downloadImages(urls, cookies, sendProgress) {
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const results   = new Array(urls.length).fill(null);
+    const BATCH     = 5;
+
+    for (let i = 0; i < urls.length; i += BATCH) {
+        const batch = urls.slice(i, i + BATCH);
+        const pct   = Math.round(20 + ((i / urls.length) * 60));
+        sendProgress(
+            `Descargando página ${i + 1}–${Math.min(i + BATCH, urls.length)} de ${urls.length}`,
+            pct
+        );
+
+        await Promise.all(batch.map(async (url, batchIdx) => {
+            const idx = i + batchIdx;
             try {
                 const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 15_000);
+                const timer = setTimeout(() => controller.abort(), 25_000);
+
                 const res = await fetch(url, {
-                    headers: { ...SCRIBD_HEADERS, Cookie: cookieStr, Referer: 'https://www.scribd.com/' },
+                    headers: {
+                        ...SCRIBD_HEADERS,
+                        'Cookie':  cookieStr,
+                        'Referer': 'https://www.scribd.com/',
+                        'Accept':  'image/webp,image/jpeg,image/png,image/*'
+                    },
                     signal: controller.signal
                 });
                 clearTimeout(timer);
-                if (!res.ok) { cache.set(src, null); return; }
+
+                if (!res.ok) {
+                    console.warn(`[SDL] Página ${idx + 1} HTTP ${res.status}`);
+                    return;
+                }
+
                 const buffer = await res.arrayBuffer();
-                const mime = res.headers.get('content-type') || 'image/jpeg';
-                const b64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-                cache.set(src, `data:${mime};base64,${b64}`);
-            } catch { cache.set(src, null); }
-        })
-    );
+                const mime   = res.headers.get('content-type') || 'image/jpeg';
+                results[idx] = { bytes: new Uint8Array(buffer), mime };
 
-    let count = 0;
-    const result = html.replace(imgRe, (match, pre, src, post) => {
-        const d = cache.get(src);
-        if (!d) return match;
-        count++;
-        return pre + d + post;
-    });
-    console.log('[SDL BG] Imágenes inline:', count, '/', allSrcs.length);
-    return result;
-}
-
-// ─── PDFShift ─────────────────────────────────────────────────────────────
-async function convertHtmlToPdf(htmlContent, zoom = 0.85) {
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
-
-    let response;
-    try {
-        const payload = {
-            source:   htmlContent,
-            format:   'A4',
-            delay:    8000,
-            zoom:     zoom,
-            margin:   '5mm',
-        };
-        response = await fetch(PDFSHIFT.endpoint, {
-            method:  'POST',
-            headers: { 'X-API-Key': PDFSHIFT.apiKey, 'Content-Type': 'application/json' },
-            body:    JSON.stringify(payload),
-            signal:  controller.signal
-        });
-    } finally {
-        clearTimeout(timeoutId);
+            } catch (err) {
+                console.warn(`[SDL] Error página ${idx + 1}:`, err.message);
+            }
+        }));
     }
 
-    if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
-        throw new Error(`PDFShift ${response.status}: ${errText}`);
-    }
-
-    return URL.createObjectURL(await response.blob());
+    console.log(`[SDL] Descargadas: ${results.filter(Boolean).length}/${urls.length}`);
+    return results;
 }
 
-// ─── Utilidades ───────────────────────────────────────────────────────────
+// ─── Generación de PDF con pdf-lib ────────────────────────────────────────
+
+async function buildPdf(imageData, pageDims) {
+    const { PDFDocument } = PDFLib;
+    const pdfDoc = await PDFDocument.create();
+
+    const pageW = pageDims.width  || 902;
+    const pageH = pageDims.height || 1167;
+
+    for (let i = 0; i < imageData.length; i++) {
+        const item = imageData[i];
+
+        if (!item) {
+            pdfDoc.addPage([pageW, pageH]);
+            continue;
+        }
+
+        let { bytes, mime } = item;
+
+        if (mime.includes('webp')) {
+            try {
+                bytes = await convertWebpToJpeg(bytes);
+                mime  = 'image/jpeg';
+            } catch (err) {
+                console.warn(`[SDL] WebP conversión falló p${i + 1}:`, err.message);
+                pdfDoc.addPage([pageW, pageH]);
+                continue;
+            }
+        }
+
+        try {
+            let image;
+            if (mime.includes('jpeg') || mime.includes('jpg')) {
+                image = await pdfDoc.embedJpg(bytes);
+            } else {
+                image = await pdfDoc.embedPng(bytes);
+            }
+
+            const page = pdfDoc.addPage([pageW, pageH]);
+            page.drawImage(image, { x: 0, y: 0, width: pageW, height: pageH });
+
+        } catch (err) {
+            console.warn(`[SDL] Error embed imagen p${i + 1}:`, err.message);
+            pdfDoc.addPage([pageW, pageH]);
+        }
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    console.log(`[SDL] PDF: ${Math.round(pdfBytes.length / 1024)} KB | ${pdfDoc.getPageCount()} páginas`);
+    return pdfBytes;
+}
+
+async function convertWebpToJpeg(webpBytes) {
+    const blob        = new Blob([webpBytes], { type: 'image/webp' });
+    const imageBitmap = await createImageBitmap(blob);
+    const canvas      = new OffscreenCanvas(imageBitmap.width, imageBitmap.height);
+    const ctx         = canvas.getContext('2d');
+
+    ctx.drawImage(imageBitmap, 0, 0);
+    imageBitmap.close();
+
+    const jpegBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+    return new Uint8Array(await jpegBlob.arrayBuffer());
+}
+
+// ─── Utilidades ────────────────────────────────────────────────────────────
+
 function extractDocId(url) {
-    return url?.match(/\/(?:document|doc|embeds|read|book)\/(\d+)/)?.[1] ?? null;
+    return url?.match(/\/(?:document|doc|embeds|read|book|presentation)\/(\d+)/)?.[1] ?? null;
+}
+
+function extractPageDimensions(html) {
+    const m1 = html.match(/class="outer_page[^"]*"[^>]*style="[^"]*width:(\d+)px[^"]*height:(\d+)px/);
+    if (m1) return { width: parseInt(m1[1]), height: parseInt(m1[2]) };
+
+    const m2 = html.match(/id="page\d+"[^>]*style="[^"]*width:\s*(\d+)px[^"]*height:\s*(\d+)px/);
+    if (m2) return { width: parseInt(m2[1]), height: parseInt(m2[2]) };
+
+    const m3 = html.match(/data-width="(\d+)"[^>]*data-height="(\d+)"/);
+    if (m3) return { width: parseInt(m3[1]), height: parseInt(m3[2]) };
+
+    return { width: 902, height: 1167 };
+}
+
+function triggerDownload(url, filename) {
+    return new Promise((resolve, reject) => {
+        browser.downloads.download({ url, filename, saveAs: false }, (id) => {
+            browser.runtime.lastError
+                ? reject(new Error(browser.runtime.lastError.message))
+                : resolve(id);
+        });
+    });
 }
 
 async function getScribdCookies() {
@@ -383,7 +309,7 @@ async function getScribdCookies() {
         const cookies = await browser.cookies.getAll({ domain: 'scribd.com' });
         return cookies.map(c => ({ name: c.name, value: c.value }));
     } catch (err) {
-        console.log('[SDL BG] Cookies no disponibles:', err.message);
+        console.warn('[SDL] Cookies no disponibles:', err.message);
         return [];
     }
 }

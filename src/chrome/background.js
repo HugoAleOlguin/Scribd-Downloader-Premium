@@ -1,679 +1,328 @@
 /**
- * Scribd Premium Downloader - Background Service Worker
- * @version 3.4.0 (Manifest V3)
+ * Scribd Downloader - Background Service Worker (Chrome/MV3)
+ * @version 5.0.0 (local/develop)
  *
- * ESTRATEGIA (en orden de preferencia):
+ * ESTRATEGIA ÚNICA: scribd-dl approach
+ *   1. Obtener el HTML del embed de Scribd (igual que rkwyu/scribd-dl)
+ *   2. Extraer URLs de imágenes de las páginas
+ *   3. Descargar imágenes como binario
+ *   4. Construir PDF localmente con pdf-lib (sin APIs externas)
+ *   5. Entregar al navegador via chrome.downloads
  *
- *  1. El background fetchea scribd.com CON las cookies del usuario
- *     (usando el header Cookie manual — las extensiones con host_permissions
- *     pueden hacerlo sin restricciones CORS).
- *     → Obtiene el access_key del HTML del servidor.
- *     → Fetchea el embed URL con ese access_key.
- *     → Envía el HTML del embed a PDFShift. PDFShift nunca accede a Scribd.
- *
- *  2. Si falla (access_key no encontrado o embed error):
- *     → Usa el HTML capturado del DOM por content.js (si llegó uno).
- *     → Envía ese HTML a PDFShift.
- *
- *  3. Error claro con la razón.
+ * Sin PDFShift, sin servidores externos, sin instalaciones adicionales.
  */
 
-const PDFSHIFT = {
-    endpoint: 'https://api.pdfshift.io/v3/convert/pdf',
-    apiKey:   'sk_b44a585579aa75162adc2b86731707f2a3b5ef63',
-    timeout:  90_000
-};
+// pdf-lib se carga como archivo local — expone window.PDFLib en global scope
+importScripts('libs/pdf-lib.min.js');
 
-// Key universal de Scribd — compartida por todos los sitios de descarga (pdfdownloader.net, etc.)
-// Permite acceder al embed de CUALQUIER documento sin cuenta ni suscripción.
-const SCRIBD_UNIVERSAL_KEY = 'key-fFexxf7r1bzEfWu3HKwf';
+// ─── Constantes ────────────────────────────────────────────────────────────
+
+const SCRIBD_EMBED_KEY = 'key-fFexxf7r1bzEfWu3HKwf';
 
 const SCRIBD_HEADERS = {
     'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'es-ES,es;q=0.9,en-US;q=0.5',
+    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.5',
     'Cache-Control':   'no-cache'
 };
 
-// ─── Listener de mensajes ─────────────────────────────────────────────────
-chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+// ─── Listener principal ────────────────────────────────────────────────────
 
-    if (request.action === 'generate_pdf') {
-        generateAndDownload(request)
-            .then(result => sendResponse({ success: true,  ...result }))
-            .catch(err   => sendResponse({ success: false, error: err.message }));
-        return true;
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action !== 'generate_pdf') {
+        sendResponse({ success: true });
+        return;
     }
 
-    sendResponse({ success: true });
+    const tabId = sender.tab?.id ?? null;
+
+    const sendProgress = (stage, percent = null) => {
+        console.log(`%c[SDL] ${stage}`, 'color:#60a5fa;font-weight:bold');
+        if (!tabId) return;
+        chrome.tabs.sendMessage(tabId, { action: 'sdl_progress', stage, percent }).catch(() => {});
+    };
+
+    generateAndDownload(request, sendProgress)
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(err => {
+            console.error('%c[SDL] ERROR:', 'color:#f87171;font-weight:bold', err.message);
+            sendResponse({ success: false, error: err.message });
+        });
+
+    return true; // Mantiene el canal de respuesta abierto (async)
 });
 
-// ─── Orquestador principal ────────────────────────────────────────────────
-async function generateAndDownload({ html: domHtml, url, accessKey, printMode, filename }) {
+// ─── Orquestador ───────────────────────────────────────────────────────────
+
+async function generateAndDownload({ url, filename }, sendProgress) {
     const docId = extractDocId(url);
-    console.log('[SDL BG] Iniciando. docId:', docId, '| html:', !!domHtml, '| ak:', !!accessKey);
-
-    // ── Estrategia 0: HTML del embed → PDFShift (CDN accesible desde sus servidores) ──
-    // Enviamos el HTML original (247KB) sin inlinear CSS/imag.
-    // PDFShift's Chromium carga JS + CSS de s-f.scribdassets.com directamente.
-    // DocumentManager corre → renderiza bordes+estilos. La fidelidad es optima.
-    if (docId) {
-        try {
-            console.log('[SDL BG] Estrategia 0: embed → PDFShift (CDN load)...');
-            const cookies  = await getScribdCookies();
-            const rawHtml  = await fetchRawEmbed(docId);
-            const stripped = stripGdprScripts(rawHtml);
-            const pageDims = extractPageDimensions(rawHtml);
-            const fitZoom  = calculateFitZoom(pageDims.width);
-            console.log('[SDL BG] Page dims:', pageDims.width + 'x' + pageDims.height, '| zoom:', fitZoom);
-            const prepared  = prepareEmbedHtml(stripped, pageDims);
-            const objectUrl = await convertHtmlToPdf(prepared, false, fitZoom);
-            console.log('[SDL BG] Estrategia 0 OK');
-            return triggerDownload(objectUrl, `${filename}.pdf`);
-        } catch (err) {
-            console.log('[SDL BG] Estrategia 0 falló:', err.message);
-        }
+    if (!docId) {
+        throw new Error('No se encontró ID de documento en la URL de Scribd.');
     }
 
-    // ── Estrategia A: access_key específico del content script (embeds externos) ─
-    if (docId && accessKey) {
-        try {
-            console.log('[SDL BG] Estrategia A: embed con access_key...');
-            const embedHtml = await fetchEmbedWithKey(docId, accessKey);
-            const objectUrl = await convertHtmlToPdf(embedHtml, false);
-            return triggerDownload(objectUrl, `${filename}.pdf`);
-        } catch (err) {
-            console.log('[SDL BG] Estrategia A falló:', err.message);
-        }
+    // Paso 1 — Obtener embed HTML (igual que scribd-dl)
+    sendProgress('Obteniendo estructura del documento...', 5);
+    const embedHtml = await fetchEmbed(docId);
+
+    // Paso 2 — Extraer URLs de imágenes de páginas
+    sendProgress('Analizando páginas...', 15);
+    const pageUrls = extractPageImageUrls(embedHtml);
+
+    if (pageUrls.length === 0) {
+        throw new Error(
+            'No se encontraron imágenes de página. ' +
+            'El documento puede requerir una sesión activa de Scribd.'
+        );
     }
 
-    // ── Estrategia B: embed URL con cookies de sesión del usuario ──────────
-    // Si el usuario tiene acceso (por uploads, suscripción, o doc público),
-    // el embed URL sirve el documento limpio SIN el UI de Scribd.
-    if (docId) {
-        try {
-            console.log('[SDL BG] Estrategia B: embed URL con cookies...');
-            const embedHtml = await tryEmbedWithCookies(docId);
-            if (embedHtml) {
-                console.log('[SDL BG] Estrategia B OK: embed obtenido');
-                const objectUrl = await convertHtmlToPdf(embedHtml, false);
-                return triggerDownload(objectUrl, `${filename}.pdf`);
-            }
-        } catch (err) {
-            console.log('[SDL BG] Estrategia B falló:', err.message);
-        }
+    const pageDims = extractPageDimensions(embedHtml);
+    console.log(`[SDL] Dimensiones: ${pageDims.width}x${pageDims.height} | Páginas: ${pageUrls.length}`);
+
+    // Paso 3 — Descargar imágenes
+    const cookies    = await getScribdCookies();
+    const imageData  = await downloadImages(pageUrls, cookies, sendProgress);
+    const validPages = imageData.filter(Boolean).length;
+
+    if (validPages === 0) {
+        throw new Error('No se pudo descargar ninguna imagen de página.');
     }
 
-    // ── Estrategia C: descarga directa de Scribd (suscriptores) ─────────────
-    if (docId) {
-        try {
-            const directUrl = await tryScribdDirectDownload(docId);
-            if (directUrl) {
-                console.log('[SDL BG] Estrategia C OK: PDF directo de Scribd');
-                return triggerDownload(directUrl, `${filename}.pdf`);
-            }
-        } catch (err) {
-            console.log('[SDL BG] Estrategia C falló:', err.message);
-        }
-    }
+    // Paso 4 — Generar PDF localmente
+    sendProgress(`Generando PDF (${validPages} páginas)...`, 85);
+    const pdfBytes = await buildPdf(imageData, pageDims);
 
-    // ── Estrategia D: HTML del body capturado por content.js ────────────
-    if (domHtml) {
-        try {
-            console.log('[SDL BG] Estrategia D: HTML del DOM a PDF (printMode:', printMode, ')...');
-            const objectUrl = await convertHtmlToPdf(domHtml, printMode);
-            return triggerDownload(objectUrl, `${filename}.pdf`);
-        } catch (err) {
-            console.log('[SDL BG] Estrategia D falló:', err.message);
-        }
-    }
+    // Paso 5 — Entregar al navegador como descarga
+    sendProgress('Guardando archivo...', 98);
+    const blob   = new Blob([pdfBytes], { type: 'application/pdf' });
+    const pdfUrl = URL.createObjectURL(blob);
 
-    throw new Error(
-        domHtml
-            ? 'El servidor PDF rechazó el contenido capturado.'
-            : 'No se pudo obtener el contenido. La cuenta de Scribd no tiene permisos de descarga o el documento no está disponible.'
-    );
+    sendProgress('¡Listo!', 100);
+    return triggerDownload(pdfUrl, `${filename}.pdf`);
 }
+
+// ─── Fetch del embed de Scribd ─────────────────────────────────────────────
 
 /**
- * Estrategia B: fetchea el embed de Scribd con las cookies de sesión del usuario.
- * El embed URL sirve el documento limpio (sin UI de Scribd) si el usuario tiene acceso.
- * No requiere access_key.
+ * Igual que scribd-dl: obtiene el HTML completo del embed incluyendo
+ * todos los scripts internos donde están las URLs de imágenes.
  */
-async function tryEmbedWithCookies(docId) {
+async function fetchEmbed(docId) {
     const cookies   = await getScribdCookies();
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-    const embedUrl = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&show_recommendations=false`;
+    const url = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&access_key=${SCRIBD_EMBED_KEY}&show_recommendations=false`;
 
-    const res = await fetch(embedUrl, {
-        headers:  { ...SCRIBD_HEADERS, Cookie: cookieStr },
-        redirect: 'follow'
-    });
-
-    const contentType = res.headers.get('content-type') || '';
-    console.log('[SDL BG] Embed URL status:', res.status, '| type:', contentType.substring(0, 30));
-
-    if (!res.ok || !contentType.includes('text/html')) return null;
-
-    const html = await res.text();
-
-    // Verificar que la respuesta contiene contenido real (no página de error/login)
-    const hasContent = html.length > 5_000
-        && !html.toLowerCase().includes('"error"')
-        && !html.includes('login_modal')
-        && !html.includes('signup');
-
-    if (!hasContent) {
-        console.log('[SDL BG] Embed URL devolvió error o paywall (', html.length, 'chars)');
-        return null;
-    }
-
-    return prepareEmbedHtml(html);
-}
-
-
-// ─── Estrategia 0: descarga directa de Scribd ────────────────────────
-async function tryScribdDirectDownload(docId) {
-    const cookies   = await getScribdCookies();
-    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-
-    const response = await fetch(
-        `https://www.scribd.com/document_downloads/download/${docId}?extension=pdf`,
-        {
-            method:   'GET',
-            headers:  { ...SCRIBD_HEADERS, Cookie: cookieStr },
-            redirect: 'follow'
-        }
-    );
-
-    const contentType = response.headers.get('content-type') || '';
-    console.log('[SDL BG] Scribd download status:', response.status, '| type:', contentType.substring(0, 40));
-
-    if (response.ok && (contentType.includes('pdf') || contentType.includes('octet-stream'))) {
-        const blob = await response.blob();
-        return URL.createObjectURL(blob);
-    }
-
-    return null;  // No disponible (no suscriptor, o formato no reconocido)
-}
-
-
-/**
- * Fetchea el HTML crudo del embed de Scribd usando el key universal + cookies.
- */
-async function fetchRawEmbed(docId) {
-    const cookies   = await getScribdCookies();
-    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-
-    const url = [
-        `https://www.scribd.com/embeds/${docId}/content`,
-        `?start_page=1&view_mode=scroll&access_key=${SCRIBD_UNIVERSAL_KEY}`,
-        `&show_recommendations=false`
-    ].join('');
-
+    console.log('[SDL] Fetching embed para docId:', docId);
     const res = await fetch(url, {
         headers: { ...SCRIBD_HEADERS, Cookie: cookieStr }
     });
 
-    if (!res.ok) throw new Error(`Embed ${res.status}`);
+    if (!res.ok) throw new Error(`Error al obtener el embed (HTTP ${res.status})`);
+
     const html = await res.text();
-    if (html.length < 5_000) throw new Error('Embed HTML muy corto (' + html.length + ' chars)');
+    console.log('[SDL] Embed recibido:', html.length, 'chars');
+
+    if (html.length < 3_000) {
+        throw new Error(`Respuesta del embed demasiado corta (${html.length} chars). Verifica que estás en un documento válido.`);
+    }
+
     return html;
 }
 
+// ─── Extracción de URLs de imágenes ───────────────────────────────────────
+
 /**
- * Reemplaza todos los <link rel="stylesheet"> del HTML por <style> inline.
- * El background script sí puede acceder a scribdassets.com; PDFShift no puede.
- * El resultado es un HTML autocontenido sin dependencias externas de CSS.
+ * Busca en el HTML completo del embed todas las URLs de imágenes de página.
+ * Técnica directamente de scribd-dl: normalizar JSON escaped slashes (\\/)
+ * para que la regex encuentre URLs tanto en src="" como en JSON embebido.
  */
-async function inlineExternalCSS(html) {
-    const linkRe = /<link\b[^>]*\brel=["']stylesheet["'][^>]*\/?>/gi;
-    const hrefRe = /\bhref=["']([^"']+)["']/i;
+function extractPageImageUrls(html) {
+    const seen = new Set();
+    const urls = [];
 
-    const linkTags = [...html.matchAll(/<link\b[^>]*\brel=["']stylesheet["'][^>]*\/?>/gi)]
-        .map(m => m[0]);
+    // JSON dentro de <script> escapa los slashes como \/
+    const normalized = html.replace(/\\\//g, '/');
 
-    if (!linkTags.length) {
-        console.log('[SDL BG] CSS inline: no se encontraron <link> stylesheet');
-        return html;
-    }
-    console.log('[SDL BG] CSS inline: fetching', linkTags.length, 'archivos CSS...');
+    const imgUrlRe = /https?:\/\/html\.scribdassets\.com\/[a-zA-Z0-9]+\/images\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)/gi;
 
-    const jobs = linkTags.map(async (tag) => {
-        const hrefM = tag.match(hrefRe);
-        if (!hrefM) return { tag, css: null };
-
-        let url = hrefM[1];
-        if (url.startsWith('//')) url = 'https:' + url;
-        if (!url.startsWith('http')) return { tag, css: null };
-
-        try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 12_000);
-            const res = await fetch(url, {
-                headers: { Accept: 'text/css,*/*', 'User-Agent': SCRIBD_HEADERS['User-Agent'] },
-                signal: controller.signal
-            });
-            clearTimeout(timer);
-            const css = res.ok ? await res.text() : null;
-            return { tag, css };
-        } catch {
-            return { tag, css: null };
+    let match;
+    while ((match = imgUrlRe.exec(normalized)) !== null) {
+        const url = match[0];
+        if (!seen.has(url)) {
+            seen.add(url);
+            urls.push(url);
         }
+    }
+
+    // Ordenar por número de página (número antes del guión en el filename)
+    urls.sort((a, b) => {
+        const pageNum = u => parseInt(u.match(/\/images\/(\d+)-/)?.[1] ?? '0');
+        return pageNum(a) - pageNum(b);
     });
 
-    const results = await Promise.allSettled(jobs);
-
-    let result = html;
-    let inlinedCount = 0;
-    for (const r of results) {
-        if (r.status === 'fulfilled' && r.value.css) {
-            result = result.replace(r.value.tag, `<style>\n${r.value.css}\n</style>`);
-            inlinedCount++;
-        }
-    }
-    console.log('[SDL BG] CSS inline:', inlinedCount, '/', linkTags.length, 'inlineados');
-    return result;
+    console.log('[SDL] Páginas encontradas:', urls.length);
+    return urls;
 }
 
+// ─── Descarga de imágenes ──────────────────────────────────────────────────
+
 /**
- * Descarga las imágenes de página (img.absimg) y las convierte a data URIs base64.
- *
- * Scribd usa un sistema de renderizado híbrido:
- * - image_layer: JPEG de la página completa (contiene bordes de tabla, fondos, gráficos).
- * - text_layer: spans posicionados sobre la imagen (solo texto, sin visual).
- *
- * PDFShift no puede acceder a html.scribdassets.com (bloqueado por Scribd).
- * El background sí puede, porque corre en el contexto del navegador del usuario.
- * Al convertir a base64, el HTML queda 100% autocontenido.
+ * Descarga las imágenes en lotes de 5 en paralelo.
+ * Retorna un array de { bytes: Uint8Array, mime: string } | null.
  */
-async function inlinePageImages(html, cookies = []) {
+async function downloadImages(urls, cookies, sendProgress) {
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const results   = new Array(urls.length).fill(null);
+    const BATCH     = 5;
 
-    // Encuentra todas las URL de imágenes en src="..."
-    const imgRe  = /(<img\b[^>]*\bsrc=")([^"]+)("[^>]*>)/gi;
-    const allSrcs = [];
-    let m;
-    while ((m = imgRe.exec(html)) !== null) {
-        allSrcs.push(m[2]);
-    }
+    for (let i = 0; i < urls.length; i += BATCH) {
+        const batch = urls.slice(i, i + BATCH);
+        const pct   = Math.round(20 + ((i / urls.length) * 60));
+        sendProgress(
+            `Descargando página ${i + 1}–${Math.min(i + BATCH, urls.length)} de ${urls.length}`,
+            pct
+        );
 
-    if (!allSrcs.length) {
-        console.log('[SDL BG] Imágenes inline: no se encontraron <img>');
-        return html;
-    }
-    console.log('[SDL BG] Imágenes inline: descargando', allSrcs.length, 'imágenes...');
-
-    // Descargar todas las imágenes concurrentemente
-    const cache = new Map();
-    await Promise.allSettled(
-        allSrcs.map(async (src) => {
-            if (cache.has(src)) return;
-            let url = src;
-            if (url.startsWith('//')) url = 'https:' + url;
-            if (!url.startsWith('http')) { cache.set(src, null); return; }
-
+        await Promise.all(batch.map(async (url, batchIdx) => {
+            const idx = i + batchIdx;
             try {
                 const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 15_000);
+                const timer = setTimeout(() => controller.abort(), 25_000);
+
                 const res = await fetch(url, {
                     headers: {
                         ...SCRIBD_HEADERS,
-                        Cookie: cookieStr,
-                        Referer: 'https://www.scribd.com/'
+                        'Cookie':  cookieStr,
+                        'Referer': 'https://www.scribd.com/',
+                        'Accept':  'image/webp,image/jpeg,image/png,image/*'
                     },
                     signal: controller.signal
                 });
                 clearTimeout(timer);
-                if (!res.ok) { cache.set(src, null); return; }
+
+                if (!res.ok) {
+                    console.warn(`[SDL] Página ${idx + 1} falló (HTTP ${res.status})`);
+                    return;
+                }
 
                 const buffer = await res.arrayBuffer();
                 const mime   = res.headers.get('content-type') || 'image/jpeg';
-                const b64    = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-                cache.set(src, `data:${mime};base64,${b64}`);
-            } catch {
-                cache.set(src, null);
+                results[idx] = { bytes: new Uint8Array(buffer), mime };
+
+            } catch (err) {
+                console.warn(`[SDL] Error descargando página ${idx + 1}:`, err.message);
             }
-        })
-    );
-
-    let inlinedCount = 0;
-    const result = html.replace(imgRe, (match, pre, src, post) => {
-        const dataUri = cache.get(src);
-        if (!dataUri) return match;  // mantener original si falló la descarga
-        inlinedCount++;
-        return pre + dataUri + post;
-    });
-
-    console.log('[SDL BG] Imágenes inline:', inlinedCount, '/', allSrcs.length, 'descargadas');
-    return result;
-}
-
-/**
- * Fetchea el embed usando un access_key ya conocido (para páginas externas).
- */
-async function fetchEmbedWithKey(docId, accessKey, withCookies = false) {
-    const embedUrl = [
-        `https://www.scribd.com/embeds/${docId}/content`,
-        `?start_page=1&view_mode=scroll&show_recommendations=false`,
-        `&access_key=${encodeURIComponent(accessKey)}`
-    ].join('');
-
-    const headers = { ...SCRIBD_HEADERS };
-    if (withCookies) {
-        const cookies   = await getScribdCookies();
-        const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-        if (cookieStr) headers.Cookie = cookieStr;
+        }));
     }
 
-    const res = await fetch(embedUrl, { headers });
-    if (!res.ok) throw new Error(`Scribd embed ${res.status}`);
-
-    const html = await res.text();
-    return prepareEmbedHtml(stripScripts(html));
+    const ok = results.filter(Boolean).length;
+    console.log(`[SDL] Imágenes descargadas: ${ok}/${urls.length}`);
+    return results;
 }
 
-/**
- * Elimina SOLO scripts de GDPR/tracking externos (Osano, analytics).
- * Mantiene los bundles de Scribd (DocumentManager, React) para que
- * PDFShift pueda ejecutarlos y renderizar bordes/tablas correctamente.
- * DocumentManager crea los elementos visuales (bordes, lineas) en runtime;
- * sin el, el document renderiza solo texto sin estructura visual.
- */
-function stripGdprScripts(html) {
-    return html
-        // Scripts externos de GDPR/consent (osano.com)
-        .replace(/<script\b[^>]*src=["'][^"']*osano[^"']*["'][^>]*(?:><\/script>|\/?>) */gi, '')
-        // Scripts externos de analytics/tracking
-        .replace(/<script\b[^>]*src=["'][^"']*(?:segment\.com|googletagmanager|sentry\.io|clarity\.ms|stripe\.com|js\.stripe)[^"']*["'][^>]*(?:><\/script>|\/?>) */gi, '')
-        // Noscripts (fallbacks de GDPR)
-        .replace(/<noscript>[\s\S]*?<\/noscript>/gi, '');
-}
+// ─── Generación de PDF con pdf-lib ────────────────────────────────────────
 
 /**
- * Estrategia 2: el background fetchea la página de Scribd con las cookies del usuario
- * para obtener el access_key, luego fetchea el embed.
+ * Construye el PDF final usando pdf-lib (sin APIs externas).
+ * Soporta JPEG y PNG directamente.
+ * WebP se convierte a JPEG via OffscreenCanvas (disponible en service workers).
  */
-async function fetchScribdEmbed(docId) {
-    const cookies    = await getScribdCookies();
-    const cookieStr  = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    const authHeaders = { ...SCRIBD_HEADERS, Cookie: cookieStr };
+async function buildPdf(imageData, pageDims) {
+    const { PDFDocument } = PDFLib;
+    const pdfDoc = await PDFDocument.create();
 
-    // Paso 1: cargar la página del documento para extraer el access_key
-    const pageUrl = `https://www.scribd.com/document/${docId}`;
-    const pageRes = await fetch(pageUrl, { headers: authHeaders, redirect: 'follow' });
+    const pageW = pageDims.width  || 902;
+    const pageH = pageDims.height || 1167;
 
-    if (!pageRes.ok) {
-        throw new Error(`Scribd página ${pageRes.status} — ¿está logeado?`);
-    }
+    // Convertir píxeles a puntos PDF (1pt = 1px en pdf-lib cuando se especifican unidades)
+    for (let i = 0; i < imageData.length; i++) {
+        const item = imageData[i];
 
-    const pageHtml = await pageRes.text();
-    const accessKey = extractAccessKey(pageHtml);
-
-    if (!accessKey) {
-        console.warn('[SDL BG] access_key no encontrado en el HTML de Scribd');
-        return null;
-    }
-
-    console.debug('[SDL BG] access_key encontrado:', accessKey.substring(0, 10) + '...');
-
-    // Paso 2: fetchear el embed con el access_key
-    const embedUrl = [
-        `https://www.scribd.com/embeds/${docId}/content`,
-        `?start_page=1&view_mode=scroll`,
-        `&access_key=${encodeURIComponent(accessKey)}`
-    ].join('');
-
-    const embedHeaders = {
-        ...authHeaders,
-        Referer: pageUrl
-    };
-
-    const embedRes = await fetch(embedUrl, { headers: embedHeaders, redirect: 'follow' });
-
-    if (!embedRes.ok) {
-        throw new Error(`Scribd embed ${embedRes.status}`);
-    }
-
-    const rawHtml = await embedRes.text();
-
-    // Envolver en un documento limpio para que PDFShift lo renderice correctamente
-    return prepareEmbedHtml(stripScripts(rawHtml));
-}
-
-/**
- * Extrae el access_key del HTML de la página de Scribd.
- * Scribd lo incrusta en el __NEXT_DATA__ o en scripts inline como JSON.
- */
-function extractAccessKey(html) {
-    const patterns = [
-        // En __NEXT_DATA__ JSON (Next.js SSR)
-        /"access_key"\s*:\s*"([a-zA-Z0-9_\-]{10,})"/,
-        // En scripts inline como propiedad JS
-        /access_key['":\s]+['"]([a-zA-Z0-9_\-]{10,})['"]/,
-        // En data-attributes
-        /data-access-key="([a-zA-Z0-9_\-]{10,})"/
-    ];
-
-    for (const pattern of patterns) {
-        const match = html.match(pattern);
-        if (match) return match[1];
-    }
-
-    return null;
-}
-
-/**
- * Prepara el HTML del embed de Scribd para PDFShift:
- * - Mantiene el <head> original con todos los <link> CSS de Scribd (scribdassets.com)
- *   para que PDFShift los cargue y mantenga negritas, tablas, colores, fuentes.
- * - Elimina scripts (ya strippeados antes) e inyecta solo un CSS de override.
- * NO reemplaza el HTML: lo aumenta. Esto preserva toda la fidelidad visual.
- */
-
-/**
- * Extrae el width/height de la primera outer_page del HTML del embed.
- * Scribd informa las dimensiones reales del documento en px.
- */
-function extractPageDimensions(html) {
-    const m = html.match(/class="outer_page[^"]*"[^>]*style="width:(\d+)px[^;]*;?\s*height:(\d+)px/);
-    if (m) return { width: parseInt(m[1]), height: parseInt(m[2]) };
-    // Alternativa: buscar el inner_page
-    const m2 = html.match(/id="page\d+"[^>]*style="width:\s*(\d+)px;\s*height:(\d+)px/);
-    if (m2) return { width: parseInt(m2[1]), height: parseInt(m2[2]) };
-    return { width: 902, height: 1167 };  // Scribd default DOCX
-}
-
-/**
- * Calcula el zoom máximo para que el documento quepa en A4 sin clippear.
- * PDFShift renderiza A4 a 96dpi → ~794px de ancho usable sin márgenes.
- */
-function calculateFitZoom(pageWidthPx) {
-    const A4_USABLE_PX = 790;  // A4 a 96dpi menos margen mínimo
-    const zoom = A4_USABLE_PX / pageWidthPx;
-    // Limitar entre 0.5 y 1.0
-    return Math.min(1.0, Math.max(0.5, parseFloat(zoom.toFixed(2))));
-}
-
-function prepareEmbedHtml(html, pageDims = { width: 902, height: 1167 }) {
-    // CSS de override: preservar colores y ocultar UI del embed.
-    // Estructura del embed: body > .auto__embeds_new_show > .document_scroller > .document_container
-    // El toolbar/header/footer de Scribd son hermanos de .document_scroller
-    // → Los ocultamos con el selector de sibling.
-    const overrideCSS = `<style id="sdl-overrides">
-/* Preservar fondos/colores en la captura de PDF */
-* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-
-/* Ocultar todo en body excepto el wrapper del embed */
-body > div:not([data-track_category="embeds"]),
-body > header, body > footer, body > nav,
-body > script, #fb-root { display: none !important; }
-
-/* Dentro del wrapper del embed, ocultar TODO excepto el document_scroller */
-[data-track_category="embeds"] > div:not(.document_scroller) { display: none !important; }
-
-/* Dentro del document_scroller, ocultar TODO excepto el document_container */
-.document_scroller > div:not(.document_container) { display: none !important; }
-
-/* Selectores adicionales por clase para elementos que React pueda renderizar */
-[class*="toolbar"], [class*="Toolbar"], [class*="ToolBar"],
-[class*="action_bar"], [class*="ActionBar"],
-[class*="EmbedHeader"], [class*="EmbedFooter"],
-[class*="share_button"], [class*="download_btn"],
-[id*="toolbar"], .bottom_toolbar, .header_container,
-[class*="ScribdIcon"], [class*="scribd_icon"] { display: none !important; }
-
-/* Ocultar GDPR overlays */
-[class*="osano"], [id*="osano"],
-[class*="consent"], [id*="consent"],
-[class*="cookie"], [id*="cookie"],
-[class*="gdpr"],   [id*="gdpr"],
-[role="dialog"][aria-modal="true"],
-.sp-message-container { display: none !important; }
-</style>`;
-
-    // Script que corre a los 500ms para ocultar UI y triggerear carga de todas las páginas
-    const cleanupScript = `<script>
-setTimeout(function() {
-    // 1. Ocultar UI del embed
-    document.querySelectorAll('[class*="toolbar"], [class*="Toolbar"], ' +
-        '[class*="EmbedHeader"], [class*="EmbedFooter"], ' +
-        '[class*="action_bar"], [class*="ActionBar"]').forEach(function(el) {
-        if (!el.closest('.outer_page_container') && !el.closest('.document_container')) {
-            el.style.setProperty('display', 'none', 'important');
+        if (!item) {
+            // Página faltante: añadir página en blanco para mantener numeración
+            pdfDoc.addPage([pageW, pageH]);
+            continue;
         }
-    });
 
-    // 2. Scroll forzado para triggerear lazy loading de TODAS las páginas
-    // DocumentManager solo renderiza páginas visibles; hay que scrollear para que las cargue todas
-    var scroller = document.querySelector('.document_scroller') || document.documentElement;
-    var totalH = Math.max(scroller.scrollHeight, document.body.scrollHeight);
-    var step   = 600;           // px por salto
-    var i      = 0;
-    var maxIt  = Math.ceil(totalH / step) + 5;
+        let { bytes, mime } = item;
 
-    function scrollStep() {
-        scroller.scrollTop = i * step;
-        document.documentElement.scrollTop = i * step;
-        i++;
-        if (i <= maxIt) {
-            setTimeout(scrollStep, 80);   // 80ms por paso = ~50ms de margen
-        } else {
-            // Regresa al inicio para que PDFShift empiece desde arriba
-            scroller.scrollTop = 0;
-            document.documentElement.scrollTop = 0;
+        // WebP no es soportado por pdf-lib — convertir a JPEG usando OffscreenCanvas
+        if (mime.includes('webp')) {
+            try {
+                bytes = await convertWebpToJpeg(bytes);
+                mime  = 'image/jpeg';
+            } catch (err) {
+                console.warn(`[SDL] No se pudo convertir WebP p${i + 1}:`, err.message);
+                pdfDoc.addPage([pageW, pageH]);
+                continue;
+            }
+        }
+
+        try {
+            let image;
+            if (mime.includes('jpeg') || mime.includes('jpg')) {
+                image = await pdfDoc.embedJpg(bytes);
+            } else if (mime.includes('png')) {
+                image = await pdfDoc.embedPng(bytes);
+            } else {
+                // Tipo desconocido: intentar como JPEG (la mayoría son JPEG)
+                image = await pdfDoc.embedJpg(bytes);
+            }
+
+            const page = pdfDoc.addPage([pageW, pageH]);
+            page.drawImage(image, { x: 0, y: 0, width: pageW, height: pageH });
+
+        } catch (err) {
+            console.warn(`[SDL] Error embebiendo imagen p${i + 1}:`, err.message);
+            pdfDoc.addPage([pageW, pageH]);
         }
     }
-    scrollStep();
-}, 500);
-</script>`;
 
-    let result = html;
-    // Inyectar CSS antes de </head>
-    result = result.includes('</head>')
-        ? result.replace('</head>', overrideCSS + '\n</head>')
-        : overrideCSS + result;
-    // Inyectar script de limpieza antes de </body>
-    result = result.includes('</body>')
-        ? result.replace('</body>', cleanupScript + '\n</body>')
-        : result + cleanupScript;
-    return result;
+    const pdfBytes = await pdfDoc.save();
+    console.log(`[SDL] PDF generado: ${Math.round(pdfBytes.length / 1024)} KB | ${pdfDoc.getPageCount()} páginas`);
+    return pdfBytes;
 }
-
 
 /**
- * Enviar una URL directamente a PDFShift para que su Chromium headless la renderice.
- * Con las cookies del usuario, Scribd autentifica la sesión y sirve el documento completo.
- * PDFShift espera que la página cargue (.page_text visible) antes de capturar.
- *
- * Nota: las cookies deben ser solo {name, value} — PDFShift rechaza domain/path/etc.
+ * Convierte bytes WebP a JPEG usando OffscreenCanvas.
+ * OffscreenCanvas está disponible en service workers de Chrome.
  */
-async function convertUrlToPdf(url, cookies = []) {
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
+async function convertWebpToJpeg(webpBytes) {
+    const blob        = new Blob([webpBytes], { type: 'image/webp' });
+    const imageBitmap = await createImageBitmap(blob);
+    const canvas      = new OffscreenCanvas(imageBitmap.width, imageBitmap.height);
+    const ctx         = canvas.getContext('2d');
 
-    // PDFShift solo acepta {name, value} en el array de cookies
-    const pdfCookies = cookies.map(c => ({ name: c.name, value: c.value }));
+    ctx.drawImage(imageBitmap, 0, 0);
+    imageBitmap.close();
 
-    const payload = {
-        source:  url,
-        format:  'A4',
-        // Esperar a que React renderice el contenido del documento
-        delay:   4000,
-        // Margen mínimo para que las páginas no se corten
-        margin:  { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
-        ...(pdfCookies.length > 0 && { cookies: pdfCookies })
-    };
-
-    let response;
-    try {
-        response = await fetch(PDFSHIFT.endpoint, {
-            method:  'POST',
-            headers: { 'X-API-Key': PDFSHIFT.apiKey, 'Content-Type': 'application/json' },
-            body:    JSON.stringify(payload),
-            signal:  controller.signal
-        });
-    } finally {
-        clearTimeout(timeoutId);
-    }
-
-    if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
-        throw new Error(`PDFShift URL ${response.status}: ${errText}`);
-    }
-
-    return URL.createObjectURL(await response.blob());
+    const jpegBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+    return new Uint8Array(await jpegBlob.arrayBuffer());
 }
 
-// ─── HTML → PDFShift ─────────────────────────────────────────────
-async function convertHtmlToPdf(htmlContent, printMode = false, zoom = 0.85) {
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), PDFSHIFT.timeout);
-
-    const payload = {
-        source:   htmlContent,
-        format:   'A4',
-        // Tiempo para DocumentManager + scroll de todas las páginas (500ms setup + 80ms×pasos + buffer)
-        delay:    8000,
-        zoom:     zoom,
-        margin:   '5mm',
-        ...(printMode && { media_type: 'print' })
-    };
-
-    let response;
-    try {
-        response = await fetch(PDFSHIFT.endpoint, {
-            method:  'POST',
-            headers: {
-                'X-API-Key':    PDFSHIFT.apiKey,
-                'Content-Type': 'application/json'
-            },
-            body:   JSON.stringify(payload),
-            signal: controller.signal
-        });
-    } finally {
-        clearTimeout(timeoutId);
-    }
-
-    if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
-        throw new Error(`PDFShift ${response.status}: ${errText}`);
-    }
-
-    return URL.createObjectURL(await response.blob());
-}
-
-
-// ─── Utilidades ───────────────────────────────────────────────────────────
+// ─── Utilidades ────────────────────────────────────────────────────────────
 
 function extractDocId(url) {
-    return url?.match(/\/(?:document|doc|embeds|read|book)\/(\d+)/)?.[1] ?? null;
+    return url?.match(/\/(?:document|doc|embeds|read|book|presentation)\/(\d+)/)?.[1] ?? null;
+}
+
+function extractPageDimensions(html) {
+    const m1 = html.match(/class="outer_page[^"]*"[^>]*style="[^"]*width:(\d+)px[^"]*height:(\d+)px/);
+    if (m1) return { width: parseInt(m1[1]), height: parseInt(m1[2]) };
+
+    const m2 = html.match(/id="page\d+"[^>]*style="[^"]*width:\s*(\d+)px[^"]*height:\s*(\d+)px/);
+    if (m2) return { width: parseInt(m2[1]), height: parseInt(m2[2]) };
+
+    const m3 = html.match(/data-width="(\d+)"[^>]*data-height="(\d+)"/);
+    if (m3) return { width: parseInt(m3[1]), height: parseInt(m3[2]) };
+
+    console.warn('[SDL] Dimensiones no encontradas, usando 902×1167 por defecto');
+    return { width: 902, height: 1167 };
 }
 
 function triggerDownload(url, filename) {
     return new Promise((resolve, reject) => {
-        chrome.downloads.download({ url, filename, saveAs: true }, (id) => {
+        chrome.downloads.download({ url, filename, saveAs: false }, (id) => {
             chrome.runtime.lastError
                 ? reject(new Error(chrome.runtime.lastError.message))
                 : resolve({ downloadId: id });
@@ -686,12 +335,13 @@ async function getScribdCookies() {
         const cookies = await chrome.cookies.getAll({ domain: 'scribd.com' });
         return cookies.map(c => ({ name: c.name, value: c.value }));
     } catch (err) {
-        console.warn('[SDL BG] No se pudieron leer cookies:', err.message);
+        console.warn('[SDL] Cookies no disponibles:', err.message);
         return [];
     }
 }
 
-// ─── Keepalive ────────────────────────────────────────────────────────────
+// ─── Keepalive (evita que el service worker se apague durante descargas largas) ─
+
 chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'sdl-keepalive') return;
     const interval = setInterval(() => {
