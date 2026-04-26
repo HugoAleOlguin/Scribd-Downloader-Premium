@@ -1,33 +1,10 @@
 /**
  * Scribd Downloader - Background Script (Firefox/MV3)
- * @version 5.0.0 (local/develop)
+ * @version 5.1.0 (local/develop)
  *
- * NOTA: Firefox MV3 background usa "type": "module" — no tenemos importScripts().
- * pdf-lib se carga dinámicamente via fetch + Function eval (patrón estándar para UMD en module workers).
- *
- * ESTRATEGIA ÚNICA: scribd-dl approach
- *   embed URL → extraer imágenes → descargar → pdf-lib → chrome.downloads
+ * Mismo approach que Chrome pero usando browser.* (WebExtensions API).
+ * Sin librerías externas — constructor de PDF inline, CSP-safe.
  */
-
-// ─── Carga de pdf-lib en contexto module ──────────────────────────────────
-
-let PDFLib = null;
-
-async function loadPdfLib() {
-    if (PDFLib) return PDFLib;
-
-    // Fetch el script UMD local y evaluarlo en el contexto global
-    const url  = browser.runtime.getURL('libs/pdf-lib.min.js');
-    const resp = await fetch(url);
-    const code = await resp.text();
-
-    // Ejecutar el bundle UMD para que defina self.PDFLib
-    const fn = new Function(code);
-    fn();
-
-    PDFLib = self.PDFLib;
-    return PDFLib;
-}
 
 // ─── Constantes ────────────────────────────────────────────────────────────
 
@@ -65,9 +42,6 @@ async function generateAndDownload({ url, filename }, sendProgress) {
     }
 
     try {
-        sendProgress('Cargando motor PDF...', 3);
-        await loadPdfLib();
-
         sendProgress('Obteniendo estructura del documento...', 5);
         const embedHtml = await fetchEmbed(docId);
 
@@ -77,7 +51,7 @@ async function generateAndDownload({ url, filename }, sendProgress) {
         if (pageUrls.length === 0) {
             return {
                 success: false,
-                error: 'No se encontraron imágenes de página. El documento puede requerir sesión activa en Scribd.'
+                error: 'No se encontraron imágenes. El documento puede requerir sesión activa en Scribd.'
             };
         }
 
@@ -86,19 +60,19 @@ async function generateAndDownload({ url, filename }, sendProgress) {
 
         const cookies   = await getScribdCookies();
         const imageData = await downloadImages(pageUrls, cookies, sendProgress);
-        const validPages = imageData.filter(Boolean).length;
+        const validCount = imageData.filter(Boolean).length;
 
-        if (validPages === 0) {
+        if (validCount === 0) {
             return { success: false, error: 'No se pudo descargar ninguna imagen de página.' };
         }
 
-        sendProgress(`Generando PDF (${validPages} páginas)...`, 85);
+        sendProgress(`Generando PDF (${validCount} páginas)...`, 85);
         const pdfBytes = await buildPdf(imageData, pageDims);
 
         sendProgress('Guardando archivo...', 98);
-        const blob    = new Blob([pdfBytes], { type: 'application/pdf' });
-        const pdfUrl  = URL.createObjectURL(blob);
-        const dlId    = await triggerDownload(pdfUrl, `${filename}.pdf`);
+        const blob   = new Blob([pdfBytes], { type: 'application/pdf' });
+        const pdfUrl = URL.createObjectURL(blob);
+        const dlId   = await triggerDownload(pdfUrl, `${filename}.pdf`);
 
         sendProgress('¡Listo!', 100);
         return { success: true, downloadId: dlId };
@@ -115,7 +89,12 @@ async function fetchEmbed(docId) {
     const cookies   = await getScribdCookies();
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-    const url = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&access_key=${SCRIBD_EMBED_KEY}&show_recommendations=false`;
+    const url = [
+        `https://www.scribd.com/embeds/${docId}/content`,
+        `?start_page=1&view_mode=scroll`,
+        `&access_key=${SCRIBD_EMBED_KEY}`,
+        `&show_recommendations=false`
+    ].join('');
 
     console.log('[SDL] Fetching embed docId:', docId);
     const res = await fetch(url, {
@@ -178,7 +157,7 @@ async function downloadImages(urls, cookies, sendProgress) {
             const idx = i + batchIdx;
             try {
                 const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 25_000);
+                const timer      = setTimeout(() => controller.abort(), 25_000);
 
                 const res = await fetch(url, {
                     headers: {
@@ -210,60 +189,32 @@ async function downloadImages(urls, cookies, sendProgress) {
     return results;
 }
 
-// ─── Generación de PDF con pdf-lib ────────────────────────────────────────
+// ─── Construcción de PDF (inline, CSP-safe) ────────────────────────────────
 
 async function buildPdf(imageData, pageDims) {
-    const { PDFDocument } = PDFLib;
-    const pdfDoc = await PDFDocument.create();
-
     const pageW = pageDims.width  || 902;
     const pageH = pageDims.height || 1167;
 
-    for (let i = 0; i < imageData.length; i++) {
-        const item = imageData[i];
-
-        if (!item) {
-            pdfDoc.addPage([pageW, pageH]);
-            continue;
-        }
-
+    const jpegPages = await Promise.all(imageData.map(async (item, i) => {
+        if (!item) return null;
         let { bytes, mime } = item;
 
-        if (mime.includes('webp')) {
+        if (!mime.includes('jpeg') && !mime.includes('jpg')) {
             try {
-                bytes = await convertWebpToJpeg(bytes);
-                mime  = 'image/jpeg';
+                bytes = await convertToJpeg(bytes, mime);
             } catch (err) {
-                console.warn(`[SDL] WebP conversión falló p${i + 1}:`, err.message);
-                pdfDoc.addPage([pageW, pageH]);
-                continue;
+                console.warn(`[SDL] Error convirtiendo imagen p${i + 1}:`, err.message);
+                return null;
             }
         }
+        return { bytes };
+    }));
 
-        try {
-            let image;
-            if (mime.includes('jpeg') || mime.includes('jpg')) {
-                image = await pdfDoc.embedJpg(bytes);
-            } else {
-                image = await pdfDoc.embedPng(bytes);
-            }
-
-            const page = pdfDoc.addPage([pageW, pageH]);
-            page.drawImage(image, { x: 0, y: 0, width: pageW, height: pageH });
-
-        } catch (err) {
-            console.warn(`[SDL] Error embed imagen p${i + 1}:`, err.message);
-            pdfDoc.addPage([pageW, pageH]);
-        }
-    }
-
-    const pdfBytes = await pdfDoc.save();
-    console.log(`[SDL] PDF: ${Math.round(pdfBytes.length / 1024)} KB | ${pdfDoc.getPageCount()} páginas`);
-    return pdfBytes;
+    return buildJpegPdf(jpegPages, pageW, pageH);
 }
 
-async function convertWebpToJpeg(webpBytes) {
-    const blob        = new Blob([webpBytes], { type: 'image/webp' });
+async function convertToJpeg(bytes, mime) {
+    const blob        = new Blob([bytes], { type: mime });
     const imageBitmap = await createImageBitmap(blob);
     const canvas      = new OffscreenCanvas(imageBitmap.width, imageBitmap.height);
     const ctx         = canvas.getContext('2d');
@@ -273,6 +224,152 @@ async function convertWebpToJpeg(webpBytes) {
 
     const jpegBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
     return new Uint8Array(await jpegBlob.arrayBuffer());
+}
+
+// ─── Constructor de PDF minimalista ───────────────────────────────────────
+
+function buildJpegPdf(pages, pageW, pageH) {
+    const enc        = new TextEncoder();
+    const chunks     = [];
+    const objOffsets = {};
+    let byteOffset   = 0;
+
+    function str(s) {
+        const b = enc.encode(s);
+        chunks.push(b);
+        byteOffset += b.length;
+    }
+
+    function bin(b) {
+        chunks.push(b);
+        byteOffset += b.length;
+    }
+
+    function beginObj(id) {
+        objOffsets[id] = byteOffset;
+        str(`${id} 0 obj\n`);
+    }
+
+    function endObj() { str('endobj\n'); }
+
+    const N         = pages.length;
+    const catalogId = 1;
+    const pagesId   = 2;
+    const imgId     = i => 3 + 3 * i;
+    const contentId = i => 4 + 3 * i;
+    const pageId    = i => 5 + 3 * i;
+
+    str('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n');
+
+    beginObj(catalogId);
+    str(`<< /Type /Catalog /Pages ${pagesId} 0 R >>\n`);
+    endObj();
+
+    const kidsStr = Array.from({ length: N }, (_, i) => `${pageId(i)} 0 R`).join(' ');
+    beginObj(pagesId);
+    str(`<< /Type /Pages /Count ${N} /Kids [${kidsStr}] >>\n`);
+    endObj();
+
+    for (let i = 0; i < N; i++) {
+        const page    = pages[i];
+        const imgName = `Im${i}`;
+
+        let imgW = pageW, imgH = pageH;
+        if (page) {
+            const dims = readJpegDimensions(page.bytes);
+            if (dims) { imgW = dims.width; imgH = dims.height; }
+        }
+
+        beginObj(imgId(i));
+        if (page) {
+            const nComp = readJpegComponents(page.bytes) ?? 3;
+            const cs    = nComp === 1 ? '/DeviceGray' : '/DeviceRGB';
+            str(`<< /Type /XObject /Subtype /Image `);
+            str(`/Width ${imgW} /Height ${imgH} `);
+            str(`/ColorSpace ${cs} /BitsPerComponent 8 `);
+            str(`/Filter /DCTDecode /Length ${page.bytes.length} >>\n`);
+            str('stream\n');
+            bin(page.bytes);
+            str('\nendstream\n');
+        } else {
+            str('<< >>\n');
+        }
+        endObj();
+
+        beginObj(contentId(i));
+        const ops = page
+            ? enc.encode(`q ${pageW} 0 0 ${pageH} 0 0 cm /${imgName} Do Q`)
+            : enc.encode('');
+        str(`<< /Length ${ops.length} >>\nstream\n`);
+        bin(ops);
+        str('\nendstream\n');
+        endObj();
+
+        beginObj(pageId(i));
+        const res = page
+            ? `<< /XObject << /${imgName} ${imgId(i)} 0 R >> >>`
+            : '<< >>';
+        str(`<< /Type /Page /Parent ${pagesId} 0 R `);
+        str(`/MediaBox [0 0 ${pageW} ${pageH}] `);
+        str(`/Resources ${res} `);
+        str(`/Contents ${contentId(i)} 0 R >>\n`);
+        endObj();
+    }
+
+    const xrefOffset = byteOffset;
+    const maxId      = 2 + 3 * N;
+
+    str('xref\n');
+    str(`0 ${maxId + 1}\n`);
+    str('0000000000 65535 f \n');
+    for (let id = 1; id <= maxId; id++) {
+        const off = objOffsets[id] ?? 0;
+        str(`${off.toString().padStart(10, '0')} 00000 n \n`);
+    }
+
+    str(`trailer\n<< /Size ${maxId + 1} /Root ${catalogId} 0 R >>\n`);
+    str(`startxref\n${xrefOffset}\n%%EOF\n`);
+
+    const totalBytes = chunks.reduce((sum, c) => sum + c.length, 0);
+    const result     = new Uint8Array(totalBytes);
+    let pos = 0;
+    for (const chunk of chunks) { result.set(chunk, pos); pos += chunk.length; }
+
+    console.log(`[SDL] PDF: ${Math.round(result.length / 1024)} KB | ${N} páginas`);
+    return result;
+}
+
+function readJpegDimensions(bytes) {
+    if (bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null;
+    let i = 2;
+    while (i < bytes.length - 9) {
+        if (bytes[i] !== 0xFF) break;
+        const marker = bytes[i + 1];
+        const segLen = (bytes[i + 2] << 8) | bytes[i + 3];
+        if (marker >= 0xC0 && marker <= 0xC3) {
+            return {
+                height: (bytes[i + 5] << 8) | bytes[i + 6],
+                width:  (bytes[i + 7] << 8) | bytes[i + 8]
+            };
+        }
+        i += 2 + segLen;
+    }
+    return null;
+}
+
+function readJpegComponents(bytes) {
+    if (bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null;
+    let i = 2;
+    while (i < bytes.length - 9) {
+        if (bytes[i] !== 0xFF) break;
+        const marker = bytes[i + 1];
+        const segLen = (bytes[i + 2] << 8) | bytes[i + 3];
+        if (marker >= 0xC0 && marker <= 0xC3) {
+            return bytes[i + 9];
+        }
+        i += 2 + segLen;
+    }
+    return null;
 }
 
 // ─── Utilidades ────────────────────────────────────────────────────────────

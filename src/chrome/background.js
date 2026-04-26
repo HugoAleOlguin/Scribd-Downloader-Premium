@@ -1,19 +1,14 @@
 /**
  * Scribd Downloader - Background Service Worker (Chrome/MV3)
- * @version 5.0.0 (local/develop)
+ * @version 5.1.0 (local/develop)
  *
- * ESTRATEGIA ÚNICA: scribd-dl approach
- *   1. Obtener el HTML del embed de Scribd (igual que rkwyu/scribd-dl)
- *   2. Extraer URLs de imágenes de las páginas
- *   3. Descargar imágenes como binario
- *   4. Construir PDF localmente con pdf-lib (sin APIs externas)
- *   5. Entregar al navegador via chrome.downloads
- *
- * Sin PDFShift, sin servidores externos, sin instalaciones adicionales.
+ * ESTRATEGIA ÚNICA: scribd-dl approach — sin librerías externas
+ *   1. Fetch del embed HTML de Scribd
+ *   2. Extracción de URLs de imágenes de página
+ *   3. Descarga de imágenes en batches
+ *   4. Construcción de PDF inline (sin eval, sin new Function → CSP-safe)
+ *   5. Entrega al navegador via chrome.downloads
  */
-
-// pdf-lib se carga como archivo local — expone window.PDFLib en global scope
-importScripts('libs/pdf-lib.min.js');
 
 // ─── Constantes ────────────────────────────────────────────────────────────
 
@@ -60,35 +55,35 @@ async function generateAndDownload({ url, filename }, sendProgress) {
         throw new Error('No se encontró ID de documento en la URL de Scribd.');
     }
 
-    // Paso 1 — Obtener embed HTML (igual que scribd-dl)
+    // Paso 1 — Obtener embed HTML (mismo enfoque que rkwyu/scribd-dl)
     sendProgress('Obteniendo estructura del documento...', 5);
     const embedHtml = await fetchEmbed(docId);
 
-    // Paso 2 — Extraer URLs de imágenes de páginas
+    // Paso 2 — Extraer URLs de imágenes de páginas del HTML completo
     sendProgress('Analizando páginas...', 15);
     const pageUrls = extractPageImageUrls(embedHtml);
 
     if (pageUrls.length === 0) {
         throw new Error(
             'No se encontraron imágenes de página. ' +
-            'El documento puede requerir una sesión activa de Scribd.'
+            'El documento puede requerir una sesión activa en Scribd.'
         );
     }
 
     const pageDims = extractPageDimensions(embedHtml);
-    console.log(`[SDL] Dimensiones: ${pageDims.width}x${pageDims.height} | Páginas: ${pageUrls.length}`);
+    console.log(`[SDL] Dimensiones: ${pageDims.width}×${pageDims.height} | ${pageUrls.length} páginas`);
 
-    // Paso 3 — Descargar imágenes
-    const cookies    = await getScribdCookies();
-    const imageData  = await downloadImages(pageUrls, cookies, sendProgress);
-    const validPages = imageData.filter(Boolean).length;
+    // Paso 3 — Descargar imágenes en batches
+    const cookies   = await getScribdCookies();
+    const imageData = await downloadImages(pageUrls, cookies, sendProgress);
 
-    if (validPages === 0) {
+    const validCount = imageData.filter(Boolean).length;
+    if (validCount === 0) {
         throw new Error('No se pudo descargar ninguna imagen de página.');
     }
 
-    // Paso 4 — Generar PDF localmente
-    sendProgress(`Generando PDF (${validPages} páginas)...`, 85);
+    // Paso 4 — Construir PDF localmente (sin librerías externas, CSP-safe)
+    sendProgress(`Generando PDF (${validCount} páginas)...`, 85);
     const pdfBytes = await buildPdf(imageData, pageDims);
 
     // Paso 5 — Entregar al navegador como descarga
@@ -103,16 +98,22 @@ async function generateAndDownload({ url, filename }, sendProgress) {
 // ─── Fetch del embed de Scribd ─────────────────────────────────────────────
 
 /**
- * Igual que scribd-dl: obtiene el HTML completo del embed incluyendo
- * todos los scripts internos donde están las URLs de imágenes.
+ * Obtiene el HTML completo del embed de Scribd, incluyendo todos
+ * los <script> con los datos JSON donde están las URLs de imágenes.
+ * Idéntico al enfoque de rkwyu/scribd-dl.
  */
 async function fetchEmbed(docId) {
     const cookies   = await getScribdCookies();
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-    const url = `https://www.scribd.com/embeds/${docId}/content?start_page=1&view_mode=scroll&access_key=${SCRIBD_EMBED_KEY}&show_recommendations=false`;
+    const url = [
+        `https://www.scribd.com/embeds/${docId}/content`,
+        `?start_page=1&view_mode=scroll`,
+        `&access_key=${SCRIBD_EMBED_KEY}`,
+        `&show_recommendations=false`
+    ].join('');
 
-    console.log('[SDL] Fetching embed para docId:', docId);
+    console.log('[SDL] Fetching embed docId:', docId);
     const res = await fetch(url, {
         headers: { ...SCRIBD_HEADERS, Cookie: cookieStr }
     });
@@ -123,7 +124,10 @@ async function fetchEmbed(docId) {
     console.log('[SDL] Embed recibido:', html.length, 'chars');
 
     if (html.length < 3_000) {
-        throw new Error(`Respuesta del embed demasiado corta (${html.length} chars). Verifica que estás en un documento válido.`);
+        throw new Error(
+            `Respuesta del embed demasiado corta (${html.length} chars). ` +
+            'Verifica que estás en la página de un documento válido.'
+        );
     }
 
     return html;
@@ -132,9 +136,9 @@ async function fetchEmbed(docId) {
 // ─── Extracción de URLs de imágenes ───────────────────────────────────────
 
 /**
- * Busca en el HTML completo del embed todas las URLs de imágenes de página.
- * Técnica directamente de scribd-dl: normalizar JSON escaped slashes (\\/)
- * para que la regex encuentre URLs tanto en src="" como en JSON embebido.
+ * Busca en el HTML completo del embed las URLs de imágenes de página.
+ * Normaliza los slashes escapados de JSON (\/) antes de aplicar la regex,
+ * igual que rkwyu/scribd-dl para capturar tanto src="" como JSON embebido.
  */
 function extractPageImageUrls(html) {
     const seen = new Set();
@@ -167,8 +171,8 @@ function extractPageImageUrls(html) {
 // ─── Descarga de imágenes ──────────────────────────────────────────────────
 
 /**
- * Descarga las imágenes en lotes de 5 en paralelo.
- * Retorna un array de { bytes: Uint8Array, mime: string } | null.
+ * Descarga imágenes en lotes de 5 en paralelo.
+ * Retorna Array de { bytes: Uint8Array, mime: string } | null.
  */
 async function downloadImages(urls, cookies, sendProgress) {
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
@@ -187,7 +191,7 @@ async function downloadImages(urls, cookies, sendProgress) {
             const idx = i + batchIdx;
             try {
                 const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 25_000);
+                const timer      = setTimeout(() => controller.abort(), 25_000);
 
                 const res = await fetch(url, {
                     headers: {
@@ -215,80 +219,46 @@ async function downloadImages(urls, cookies, sendProgress) {
         }));
     }
 
-    const ok = results.filter(Boolean).length;
-    console.log(`[SDL] Imágenes descargadas: ${ok}/${urls.length}`);
+    console.log(`[SDL] Imágenes OK: ${results.filter(Boolean).length}/${urls.length}`);
     return results;
 }
 
-// ─── Generación de PDF con pdf-lib ────────────────────────────────────────
+// ─── Construcción de PDF (inline, CSP-safe) ────────────────────────────────
 
 /**
- * Construye el PDF final usando pdf-lib (sin APIs externas).
- * Soporta JPEG y PNG directamente.
- * WebP se convierte a JPEG via OffscreenCanvas (disponible en service workers).
+ * Convierte imageData a JPEG si hace falta y construye el PDF.
+ * OffscreenCanvas está disponible en service workers de Chrome.
  */
 async function buildPdf(imageData, pageDims) {
-    const { PDFDocument } = PDFLib;
-    const pdfDoc = await PDFDocument.create();
-
     const pageW = pageDims.width  || 902;
     const pageH = pageDims.height || 1167;
 
-    // Convertir píxeles a puntos PDF (1pt = 1px en pdf-lib cuando se especifican unidades)
-    for (let i = 0; i < imageData.length; i++) {
-        const item = imageData[i];
-
-        if (!item) {
-            // Página faltante: añadir página en blanco para mantener numeración
-            pdfDoc.addPage([pageW, pageH]);
-            continue;
-        }
-
+    // Normalizar todas las imágenes a JPEG (el único formato que necesita el PDF builder)
+    const jpegPages = await Promise.all(imageData.map(async (item, i) => {
+        if (!item) return null;
         let { bytes, mime } = item;
 
-        // WebP no es soportado por pdf-lib — convertir a JPEG usando OffscreenCanvas
-        if (mime.includes('webp')) {
+        // WebP y PNG no son JPEG — convertir via OffscreenCanvas
+        if (!mime.includes('jpeg') && !mime.includes('jpg')) {
             try {
-                bytes = await convertWebpToJpeg(bytes);
-                mime  = 'image/jpeg';
+                bytes = await convertToJpeg(bytes, mime);
             } catch (err) {
-                console.warn(`[SDL] No se pudo convertir WebP p${i + 1}:`, err.message);
-                pdfDoc.addPage([pageW, pageH]);
-                continue;
+                console.warn(`[SDL] Error convirtiendo imagen p${i + 1}:`, err.message);
+                return null;
             }
         }
+        return { bytes };
+    }));
 
-        try {
-            let image;
-            if (mime.includes('jpeg') || mime.includes('jpg')) {
-                image = await pdfDoc.embedJpg(bytes);
-            } else if (mime.includes('png')) {
-                image = await pdfDoc.embedPng(bytes);
-            } else {
-                // Tipo desconocido: intentar como JPEG (la mayoría son JPEG)
-                image = await pdfDoc.embedJpg(bytes);
-            }
-
-            const page = pdfDoc.addPage([pageW, pageH]);
-            page.drawImage(image, { x: 0, y: 0, width: pageW, height: pageH });
-
-        } catch (err) {
-            console.warn(`[SDL] Error embebiendo imagen p${i + 1}:`, err.message);
-            pdfDoc.addPage([pageW, pageH]);
-        }
-    }
-
-    const pdfBytes = await pdfDoc.save();
-    console.log(`[SDL] PDF generado: ${Math.round(pdfBytes.length / 1024)} KB | ${pdfDoc.getPageCount()} páginas`);
-    return pdfBytes;
+    return buildJpegPdf(jpegPages, pageW, pageH);
 }
 
 /**
- * Convierte bytes WebP a JPEG usando OffscreenCanvas.
- * OffscreenCanvas está disponible en service workers de Chrome.
+ * Convierte cualquier formato de imagen a JPEG usando OffscreenCanvas.
+ * Disponible en service workers de Chrome — no usa eval ni Function.
  */
-async function convertWebpToJpeg(webpBytes) {
-    const blob        = new Blob([webpBytes], { type: 'image/webp' });
+async function convertToJpeg(bytes, mime) {
+    const blob        = new Blob([bytes], { type: mime });
     const imageBitmap = await createImageBitmap(blob);
     const canvas      = new OffscreenCanvas(imageBitmap.width, imageBitmap.height);
     const ctx         = canvas.getContext('2d');
@@ -298,6 +268,197 @@ async function convertWebpToJpeg(webpBytes) {
 
     const jpegBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
     return new Uint8Array(await jpegBlob.arrayBuffer());
+}
+
+// ─── Constructor de PDF minimalista ───────────────────────────────────────
+
+/**
+ * Construye un PDF válido (PDF 1.4) con imágenes JPEG.
+ * Sin librerías externas, sin eval, sin new Function.
+ * 100% CSP-safe — puro JavaScript sin APIs restringidas.
+ *
+ * Estructura de objetos:
+ *   1 = Catalog
+ *   2 = Pages
+ *   Para cada página i:
+ *     3 + 3*i = Image XObject (JPEG embebido vía DCTDecode)
+ *     4 + 3*i = Content stream (coloca la imagen en el canvas de página)
+ *     5 + 3*i = Page dictionary
+ */
+function buildJpegPdf(pages, pageW, pageH) {
+    const enc    = new TextEncoder();
+    const chunks = [];
+    const objOffsets = {};
+    let byteOffset = 0;
+
+    // Acumula un string como bytes
+    function str(s) {
+        const b = enc.encode(s);
+        chunks.push(b);
+        byteOffset += b.length;
+    }
+
+    // Acumula bytes binarios directamente (para el stream JPEG)
+    function bin(b) {
+        chunks.push(b);
+        byteOffset += b.length;
+    }
+
+    // Marca el inicio de un objeto PDF y registra su offset para la xref
+    function beginObj(id) {
+        objOffsets[id] = byteOffset;
+        str(`${id} 0 obj\n`);
+    }
+
+    function endObj() {
+        str('endobj\n');
+    }
+
+    const N          = pages.length;
+    const catalogId  = 1;
+    const pagesId    = 2;
+    const imgId      = i => 3 + 3 * i;
+    const contentId  = i => 4 + 3 * i;
+    const pageId     = i => 5 + 3 * i;
+
+    // ── Header ──────────────────────────────────────────────────────────────
+    // El comentario binario indica a los lectores que el archivo contiene bytes binarios
+    str('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n');
+
+    // ── Obj 1: Catalog ──────────────────────────────────────────────────────
+    beginObj(catalogId);
+    str(`<< /Type /Catalog /Pages ${pagesId} 0 R >>\n`);
+    endObj();
+
+    // ── Obj 2: Pages ────────────────────────────────────────────────────────
+    const kidsStr = Array.from({ length: N }, (_, i) => `${pageId(i)} 0 R`).join(' ');
+    beginObj(pagesId);
+    str(`<< /Type /Pages /Count ${N} /Kids [${kidsStr}] >>\n`);
+    endObj();
+
+    // ── Objetos por página ──────────────────────────────────────────────────
+    for (let i = 0; i < N; i++) {
+        const page    = pages[i];
+        const imgName = `Im${i}`;
+
+        // Obtener dimensiones reales del JPEG (pueden diferir de pageDims)
+        let imgW = pageW, imgH = pageH;
+        if (page) {
+            const dims = readJpegDimensions(page.bytes);
+            if (dims) { imgW = dims.width; imgH = dims.height; }
+        }
+
+        // Image XObject — DCTDecode es el filtro para JPEG nativo en PDF
+        beginObj(imgId(i));
+        if (page) {
+            const nComp = readJpegComponents(page.bytes) ?? 3;
+            const cs    = nComp === 1 ? '/DeviceGray' : '/DeviceRGB';
+            str(`<< /Type /XObject /Subtype /Image `);
+            str(`/Width ${imgW} /Height ${imgH} `);
+            str(`/ColorSpace ${cs} /BitsPerComponent 8 `);
+            str(`/Filter /DCTDecode /Length ${page.bytes.length} >>\n`);
+            str('stream\n');
+            bin(page.bytes);
+            str('\nendstream\n');
+        } else {
+            str('<< >>\n'); // Página faltante: objeto vacío
+        }
+        endObj();
+
+        // Content stream — instrucciones PDF para escalar y dibujar la imagen
+        beginObj(contentId(i));
+        const ops = page
+            ? enc.encode(`q ${pageW} 0 0 ${pageH} 0 0 cm /${imgName} Do Q`)
+            : enc.encode('');
+        str(`<< /Length ${ops.length} >>\nstream\n`);
+        bin(ops);
+        str('\nendstream\n');
+        endObj();
+
+        // Page dictionary
+        beginObj(pageId(i));
+        const res = page
+            ? `<< /XObject << /${imgName} ${imgId(i)} 0 R >> >>`
+            : '<< >>';
+        str(`<< /Type /Page /Parent ${pagesId} 0 R `);
+        str(`/MediaBox [0 0 ${pageW} ${pageH}] `);
+        str(`/Resources ${res} `);
+        str(`/Contents ${contentId(i)} 0 R >>\n`);
+        endObj();
+    }
+
+    // ── Cross-reference table ───────────────────────────────────────────────
+    const xrefOffset = byteOffset;
+    const maxId      = 2 + 3 * N; // IDs van del 1 al 2+3N
+
+    str('xref\n');
+    str(`0 ${maxId + 1}\n`);
+    str('0000000000 65535 f \n'); // Entrada obligatoria para el objeto 0 (libre)
+
+    for (let id = 1; id <= maxId; id++) {
+        const off = objOffsets[id] ?? 0;
+        str(`${off.toString().padStart(10, '0')} 00000 n \n`);
+    }
+
+    // ── Trailer ─────────────────────────────────────────────────────────────
+    str(`trailer\n<< /Size ${maxId + 1} /Root ${catalogId} 0 R >>\n`);
+    str(`startxref\n${xrefOffset}\n%%EOF\n`);
+
+    // ── Concatenar todos los chunks en un único Uint8Array ──────────────────
+    const totalBytes = chunks.reduce((sum, c) => sum + c.length, 0);
+    const result     = new Uint8Array(totalBytes);
+    let pos = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, pos);
+        pos += chunk.length;
+    }
+
+    console.log(`[SDL] PDF: ${Math.round(result.length / 1024)} KB | ${N} páginas`);
+    return result;
+}
+
+// ─── Parseo de cabecera JPEG ───────────────────────────────────────────────
+
+/**
+ * Lee width/height del primer marcador SOF0/SOF1/SOF2 del JPEG.
+ * Necesario para que el XObject del PDF declare las dimensiones correctas.
+ */
+function readJpegDimensions(bytes) {
+    if (bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null; // No es JPEG
+    let i = 2;
+    while (i < bytes.length - 9) {
+        if (bytes[i] !== 0xFF) break;
+        const marker = bytes[i + 1];
+        const segLen = (bytes[i + 2] << 8) | bytes[i + 3];
+        // SOF0=C0, SOF1=C1, SOF2=C2 (C4=DHT, no es SOF)
+        if (marker >= 0xC0 && marker <= 0xC3) {
+            return {
+                height: (bytes[i + 5] << 8) | bytes[i + 6],
+                width:  (bytes[i + 7] << 8) | bytes[i + 8]
+            };
+        }
+        i += 2 + segLen;
+    }
+    return null;
+}
+
+/**
+ * Lee el número de componentes del JPEG (1 = gris, 3 = RGB, 4 = CMYK).
+ * Determina el ColorSpace que declara el XObject del PDF.
+ */
+function readJpegComponents(bytes) {
+    if (bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null;
+    let i = 2;
+    while (i < bytes.length - 9) {
+        if (bytes[i] !== 0xFF) break;
+        const marker = bytes[i + 1];
+        const segLen = (bytes[i + 2] << 8) | bytes[i + 3];
+        if (marker >= 0xC0 && marker <= 0xC3) {
+            return bytes[i + 9]; // Byte de número de componentes en el SOF
+        }
+        i += 2 + segLen;
+    }
+    return null;
 }
 
 // ─── Utilidades ────────────────────────────────────────────────────────────
@@ -316,7 +477,7 @@ function extractPageDimensions(html) {
     const m3 = html.match(/data-width="(\d+)"[^>]*data-height="(\d+)"/);
     if (m3) return { width: parseInt(m3[1]), height: parseInt(m3[2]) };
 
-    console.warn('[SDL] Dimensiones no encontradas, usando 902×1167 por defecto');
+    console.warn('[SDL] Dimensiones no encontradas, usando 902×1167');
     return { width: 902, height: 1167 };
 }
 
@@ -340,7 +501,7 @@ async function getScribdCookies() {
     }
 }
 
-// ─── Keepalive (evita que el service worker se apague durante descargas largas) ─
+// ─── Keepalive (evita que el SW se apague durante descargas largas) ────────
 
 chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'sdl-keepalive') return;
