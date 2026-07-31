@@ -58,7 +58,10 @@ C:\Extensions\scribd-downloader\
 
 ### Step 2 — Build the extension
 
-Open the folder you just extracted and **double-click `build.bat`**.
+Open the folder you just extracted and run the build script for your operating system:
+
+- **Windows:** Double-click `build.bat`
+- **Linux / macOS:** Run `bash build.sh` in your terminal
 
 This script will automatically generate two ready-to-install folders:
 
@@ -69,7 +72,7 @@ scribd-downloader/
 └── ...
 ```
 
-> ℹ️ If nothing happens when you double-click, right-click `build.bat` and select **"Run as administrator"**.
+> ℹ️ If nothing happens when you run the script, ensure you have the necessary permissions (e.g., `chmod +x build.sh` on Linux).
 
 ---
 
